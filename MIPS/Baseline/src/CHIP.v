@@ -118,3 +118,61 @@ wire [31:0] DCACHE_rdata;
         .mem_ready  (mem_ready_I)
 	);
 endmodule
+
+module MIPS_Pipeline (
+	clk,
+	rst_n,
+	ICACHE_ren,
+	ICACHE_wen,
+	ICACHE_addr,
+	ICACHE_wdata,
+	ICACHE_stall,
+	ICACHE_rdata,
+	DCACHE_ren,
+	DCACHE_wen,
+	DCACHE_addr,
+	DCACHE_wdata,
+	DCACHE_stall,
+	DCACHE_rdata
+);
+input 	clk, rst_n;
+//----------I Cache Interface-------
+output  ICACHE_ren, ICACHE_wen;
+output  [29:0] 	ICACHE_addr;
+output  [31:0] 	ICACHE_wdata;
+input         	ICACHE_stall;
+input  	[31:0] 	ICACHE_rdata;
+//----------D Cache Interface-------
+output  DCACHE_ren, DCACHE_wen;
+output  [29:0] 	DCACHE_addr;
+output  [31:0] 	DCACHE_wdata;
+input         	DCACHE_stall;
+input  	[31:0] 	DCACHE_rdata;
+//========= Pipeline Reg Declaration =========
+// First Half
+reg 	[31:0]	S1_PC, S1_PC_nxt;
+reg 	[31:0]	S1_inst, S1_inst_nxt;
+reg 	S2_WB, S2_WB_nxt;
+reg		S2_M, S2_M_nxt;
+reg 	S2_EX, S2_EX_nxt;
+reg 	[31:0]	S2_PC, S2_PC_nxt;
+reg 	[31:0]	S2_rdata1, S2_rdata1_nxt;
+reg 	[31:0]	S2_rdata2, S2_rdata2_nxt;
+reg 	[31:0]	S2_I1, S2_I1_nxt;
+reg 	[4:0]	S2_I2, S2_I2_nxt;
+reg 	[4:0]	S2_I3, S2_I3_nxt;
+// Second Half
+reg 	S3_WB, S3_WB_nxt;
+reg 	S3_M, S3_M_nxt;
+reg 	[31:0]	S3_Add, S3_Add_nxt;
+reg 	S3_Zero, S3_Zero_nxt;
+reg 	[31:0]	S3_ALUResult, S3_ALUResult_nxt;
+reg 	[31:0]	S3_rdata, S3_rdata_nxt;
+reg 	[4:0]	S3_I, S3_I_nxt;
+reg 	S4_WB, S4_WB_nxt;
+reg 	[31:0]	S4_rdata, S4_rdata_nxt;
+reg 	[31:0]	S4_ALUResult, S4_ALUResult_nxt;
+reg 	[4:0]	S4_I, S4_I_nxt;
+
+
+endmodule
