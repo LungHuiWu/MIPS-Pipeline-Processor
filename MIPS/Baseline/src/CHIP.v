@@ -163,7 +163,7 @@ reg 	[4:0]	S2_I2, S2_I2_nxt;
 reg 	[4:0]	S2_I3, S2_I3_nxt;
 // Second Half
 reg 	[1:0]	S3_WB, S3_WB_nxt;
-reg 	S3_M, S3_M_nxt;
+reg 	[2:0]	S3_M, S3_M_nxt;
 reg 	[31:0]	S3_Add, S3_Add_nxt;
 reg 	S3_Zero, S3_Zero_nxt;
 reg 	[31:0]	S3_ALUResult, S3_ALUResult_nxt;
