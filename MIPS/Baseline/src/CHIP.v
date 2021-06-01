@@ -148,12 +148,15 @@ output  [29:0] 	DCACHE_addr;
 output  [31:0] 	DCACHE_wdata;
 input         	DCACHE_stall;
 input  	[31:0] 	DCACHE_rdata;
+
 //========= Pipeline Reg Declaration =========
-// First Half
+//--------- First Half -----------------------
 reg 	[31:0]	S1_PC, S1_PC_nxt;
 reg 	[31:0]	S1_inst, S1_inst_nxt;
 reg 	[1:0] 	S2_WB, S2_WB_nxt;
+// M = Branch + MemRead + MemWrite
 reg		[2:0]	S2_M, S2_M_nxt;
+// EX = RegDst + ALUOp + ALUSrc
 reg 	[3:0]	S2_EX, S2_EX_nxt;
 reg 	[31:0]	S2_PC, S2_PC_nxt;
 reg 	[31:0]	S2_rdata1, S2_rdata1_nxt;
@@ -161,7 +164,7 @@ reg 	[31:0]	S2_rdata2, S2_rdata2_nxt;
 reg 	[31:0]	S2_I1, S2_I1_nxt;
 reg 	[4:0]	S2_I2, S2_I2_nxt;
 reg 	[4:0]	S2_I3, S2_I3_nxt;
-// Second Half
+//---------- Second Half ---------------------
 reg 	[1:0]	S3_WB, S3_WB_nxt;
 reg 	[2:0]	S3_M, S3_M_nxt;
 reg 	[31:0]	S3_Add, S3_Add_nxt;
@@ -174,10 +177,91 @@ reg 	[31:0]	S4_rdata, S4_rdata_nxt;
 reg 	[31:0]	S4_ALUResult, S4_ALUResult_nxt;
 reg 	[4:0]	S4_I, S4_I_nxt;
 
+//========= Wire ============================
+wire 	PCSrc;
+
 //========= First Part ======================
+// ID
 
 //========= Second Part =====================
+// EX
+reg 	[2:0]	ALUControl;
+wire 	[31:0]	ALU1;
+wire 	[31:0]	ALU2;
+assign	ALU1 = S2_rdata1;
+assign	ALU2 = S2_EX[0] ? S2_I1 : S2_rdata2;
+always @(*) begin
+	S3_Add_nxt = S3_Add;
+	S3_WB_nxt = S3_WB;
+	S3_M_nxt = S3_M;
+	S3_Zero_nxt = S3_Zero;
+	S3_ALUResult_nxt = S3_ALUResult;
+	S3_rdata_nxt = S3_rdata;
+	S3_I_nxt = S3_I;
+	if(!ICACHE_stall && !DCACHE_stall) begin
+		S3_WB_nxt = S2_WB;
+		S3_M_nxt = S2_M;
+		S3_Add_nxt = (S2_I1 << 2) + S2_PC;
+		case (S2_EX[2:1])
+            0: ALUControl = 2; // add
+            1: ALUControl = 6; // subtract
+            2: case (S2_I1[5:0])
+                6'b100000: ALUControl = 2; // add
+                6'b100010: ALUControl = 6; // subtract
+                6'b100100: ALUControl = 0; // and
+                6'b100101: ALUControl = 1; // or
+                6'b101010: ALUControl = 7; // set on less than
+                default: ALUControl = 0;
+            endcase
+            default: ALUControl = 0;
+        endcase
+		case (ALUControl)
+            2: begin
+                S3_ALUResult_nxt = ALU1 + ALU2;
+                S3_Zero_nxt = 0;
+            end 
+            6: begin
+                S3_ALUResult_nxt = ALU1 - ALU2;
+                S3_Zero_nxt = (S3_ALUResult_nxt == 0);
+            end
+            0: begin
+                S3_ALUResult_nxt = ALU1 & ALU2;
+                S3_Zero_nxt = 0;
+            end
+            1: begin
+                S3_ALUResult_nxt = ALU1 | ALU2;
+                S3_Zero_nxt = 0;
+            end
+            7: begin
+                S3_ALUResult_nxt = ($signed(ALU1) < $signed(ALU2));
+                S3_Zero_nxt = 0;
+            end
+            default: begin
+                S3_ALUResult_nxt = S3_ALUResult;
+                S3_Zero_nxt = S3_Zero;
+            end
+        endcase
+		S3_rdata_nxt = S2_rdata2;
+		if (S2_EX[3]) begin
+			S3_I_nxt = S2_I3;
+		end
+		else begin
+			S3_I_nxt = S2_I2;
+		end
+	end
+end
 
-
+// MEM
+assign 	DCACHE_addr = S3_ALUResult;
+assign	DCACHE_wdata = S3_rdata;
+assign	DCACHE_wen = S3_M[0];
+assign	DCACHE_ren = S3_M[1];
+assign	PCSrc = S3_M[2] && S3_Zero;
+always @(*) begin
+	S4_rdata_nxt = DCACHE_rdata;
+	S4_WB_nxt = S3_WB;
+	S4_ALUResult_nxt = S3_ALUResult;
+	S4_I_nxt = S3_I;
+end
 
 endmodule
