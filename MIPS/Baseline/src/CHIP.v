@@ -152,9 +152,9 @@ input  	[31:0] 	DCACHE_rdata;
 // First Half
 reg 	[31:0]	S1_PC, S1_PC_nxt;
 reg 	[31:0]	S1_inst, S1_inst_nxt;
-reg 	S2_WB, S2_WB_nxt;
-reg		S2_M, S2_M_nxt;
-reg 	S2_EX, S2_EX_nxt;
+reg 	[1:0] 	S2_WB, S2_WB_nxt;
+reg		[2:0]	S2_M, S2_M_nxt;
+reg 	[3:0]	S2_EX, S2_EX_nxt;
 reg 	[31:0]	S2_PC, S2_PC_nxt;
 reg 	[31:0]	S2_rdata1, S2_rdata1_nxt;
 reg 	[31:0]	S2_rdata2, S2_rdata2_nxt;
@@ -162,7 +162,7 @@ reg 	[31:0]	S2_I1, S2_I1_nxt;
 reg 	[4:0]	S2_I2, S2_I2_nxt;
 reg 	[4:0]	S2_I3, S2_I3_nxt;
 // Second Half
-reg 	S3_WB, S3_WB_nxt;
+reg 	[1:0]	S3_WB, S3_WB_nxt;
 reg 	S3_M, S3_M_nxt;
 reg 	[31:0]	S3_Add, S3_Add_nxt;
 reg 	S3_Zero, S3_Zero_nxt;
@@ -173,6 +173,11 @@ reg 	S4_WB, S4_WB_nxt;
 reg 	[31:0]	S4_rdata, S4_rdata_nxt;
 reg 	[31:0]	S4_ALUResult, S4_ALUResult_nxt;
 reg 	[4:0]	S4_I, S4_I_nxt;
+
+//========= First Part ======================
+
+//========= Second Part =====================
+
 
 
 endmodule
