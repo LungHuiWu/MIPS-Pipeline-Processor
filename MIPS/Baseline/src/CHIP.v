@@ -117,6 +117,7 @@ wire [31:0] DCACHE_rdata;
         .mem_rdata  (mem_rdata_I) ,
         .mem_ready  (mem_ready_I)
 	);
+
 endmodule
 
 module MIPS_Pipeline (
@@ -173,7 +174,7 @@ reg 	S3_Zero, S3_Zero_nxt;
 reg 	[31:0]	S3_ALUResult, S3_ALUResult_nxt;
 reg 	[31:0]	S3_rdata, S3_rdata_nxt;
 reg 	[4:0]	S3_I, S3_I_nxt;
-reg 	S4_WB, S4_WB_nxt;
+reg 	S4_WB, S4_WB_nxt;                       // need [1:0] ?
 reg 	[31:0]	S4_rdata, S4_rdata_nxt;
 reg 	[31:0]	S4_ALUResult, S4_ALUResult_nxt;
 reg 	[4:0]	S4_I, S4_I_nxt;
@@ -185,10 +186,52 @@ wire 	[31:0]	WriteData;
 wire 	[4:0]	WriteReg;
 
 //========= First Part ======================
+// IF
+
+always @(*) begin
+    S1_PC_nxt = S1_PC;
+    S1_inst_nxt = S1_inst;
+    if(!ICACHE_stall && !DCACHE_stall) begin
+        if (PCSrc) begin
+            S1_PC_nxt = S3_Add;         // for branch
+        end
+        else begin
+            S1_PC_nxt = S1_PC + 4;      // normal
+        end
+        S1_inst_nxt = ICACHE_rdata;
+    end
+end
+
 // ID
 assign	RegWrite = S4_WB[1];
 assign	WriteData = S4_WB[0] ? S4_rdata : S4_ALUResult;
 assign	WriteReg = S4_I;
+assign  ReadReg1 = S1_inst[25:21];
+assign  ReadReg2 = S1_inst[20:26];
+
+always @(*) begin
+    S2_WB_nxt = S2_WB;
+    S2_M_nxt = S2_M;
+    S2_EX_nxt = S2_EX;
+    S2_PC_nxt = S2_PC;
+    S2_rdata1_nxt = S2_rdata1;
+    S2_rdata2_nxt = S2_rdata2;
+    S2_I1_nxt = S2_I1;
+    S2_I2_nxt = S2_I2;
+    S2_I3_nxt = S2_I3;
+
+    if(!ICACHE_stall && !DCACHE_stall) begin
+        S2_WB_nxt = {RegWrite, MemToReg};           // from Control WB     
+        S2_M_nxt = {Branch, MemRead, MemWrite};     // from Control M      
+        S2_EX_nxt = {RegDst, ALUOp, ALUSrc};        // from Control EX    
+        S2_PC_nxt = S1_PC;
+        S2_rdata1_nxt = ReadReg1,    // to Registers ReadReg1
+        S2_rdata2_nxt = ReadReg2;    // to Registers ReadReg2
+        S2_I1_nxt = {{16{S1_inst[15]}},S1_inst[15:0]};
+        S2_I2_nxt = S1_inst[20:16];
+        S2_I3_nxt = S1_inst[15:11];
+    end
+end
 
 //========= Second Part =====================
 // EX
