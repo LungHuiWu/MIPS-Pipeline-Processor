@@ -174,7 +174,7 @@ reg 	S3_Zero, S3_Zero_nxt;
 reg 	[31:0]	S3_ALUResult, S3_ALUResult_nxt;
 reg 	[31:0]	S3_rdata, S3_rdata_nxt;
 reg 	[4:0]	S3_I, S3_I_nxt;
-reg 	S4_WB, S4_WB_nxt;                       // need [1:0] ?
+reg 	[1:0]   S4_WB, S4_WB_nxt;                       // need [1:0] ?
 reg 	[31:0]	S4_rdata, S4_rdata_nxt;
 reg 	[31:0]	S4_ALUResult, S4_ALUResult_nxt;
 reg 	[4:0]	S4_I, S4_I_nxt;
