@@ -1,4 +1,5 @@
 `include "cache.v"
+`include "ALU.v"
 // Top module of your design, you cannot modify this module!!
 module CHIP (	clk,
 				rst_n,
@@ -63,7 +64,6 @@ wire [31:0] DCACHE_rdata;
 	// 1. pipelined MIPS processor
 	// 2. data cache
 	// 3. instruction cache
-
 
 	MIPS_Pipeline i_MIPS(
 		// control interface
@@ -249,57 +249,6 @@ always @(*) begin
 	S3_ALUResult_nxt = S3_ALUResult;
 	S3_rdata_nxt = S3_rdata;
 	S3_I_nxt = S3_I;
-	if(!ICACHE_stall && !DCACHE_stall) begin
-		S3_WB_nxt = S2_WB;
-		S3_M_nxt = S2_M;
-		S3_Add_nxt = (S2_I1 << 2) + S2_PC;
-		case (S2_EX[2:1])
-            0: ALUControl = 2; // add
-            1: ALUControl = 6; // subtract
-            2: case (S2_I1[5:0])
-                6'b100000: ALUControl = 2; // add
-                6'b100010: ALUControl = 6; // subtract
-                6'b100100: ALUControl = 0; // and
-                6'b100101: ALUControl = 1; // or
-                6'b101010: ALUControl = 7; // set on less than
-                default: ALUControl = 0;
-            endcase
-            default: ALUControl = 0;
-        endcase
-		case (ALUControl)
-            2: begin
-                S3_ALUResult_nxt = ALU1 + ALU2;
-                S3_Zero_nxt = 0;
-            end 
-            6: begin
-                S3_ALUResult_nxt = ALU1 - ALU2;
-                S3_Zero_nxt = (S3_ALUResult_nxt == 0);
-            end
-            0: begin
-                S3_ALUResult_nxt = ALU1 & ALU2;
-                S3_Zero_nxt = 0;
-            end
-            1: begin
-                S3_ALUResult_nxt = ALU1 | ALU2;
-                S3_Zero_nxt = 0;
-            end
-            7: begin
-                S3_ALUResult_nxt = ($signed(ALU1) < $signed(ALU2));
-                S3_Zero_nxt = 0;
-            end
-            default: begin
-                S3_ALUResult_nxt = S3_ALUResult;
-                S3_Zero_nxt = S3_Zero;
-            end
-        endcase
-		S3_rdata_nxt = S2_rdata2;
-		if (S2_EX[3]) begin
-			S3_I_nxt = S2_I3;
-		end
-		else begin
-			S3_I_nxt = S2_I2;
-		end
-	end
 end
 
 // MEM
