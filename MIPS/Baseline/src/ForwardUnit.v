@@ -19,9 +19,9 @@ module ForwardUnit (
     input  [4:0]  ExMemRd, MemWbRd;
     input  [4:0]  IdExRs, IdExRt;
     input         ExMem_RegWrite, MemWb_RegWrite; 
-    input  [32:0] ExMem_data, MemWb_data;
-    input  [32:0] IdEx_data1, IdEx_data2; 
-    output [32:0] Alu_data1, Alu_data2; 
+    input  [31:0] ExMem_data, MemWb_data;
+    input  [31:0] IdEx_data1, IdEx_data2; 
+    output [31:0] Alu_data1, Alu_data2; 
 
     /* Wires/Regs Part */
     reg [1:0] ForwardA; // Alu_data mux control, 00 from ID/EX, 10 from EX/MEM, 01 from MEM/WB
@@ -68,9 +68,9 @@ module ForwardBranchUnit (
     input         ExMem_RegWrite; 
     input  [5:0]  IfId_Opcode;
     input  [3:0]  IfId_Funct4b;
-    input  [32:0] ExMem_data;
-    input  [32:0] Reg_data1, Reg_data2; 
-    output [32:0] Branch_data1, Branch_data2; 
+    input  [31:0] ExMem_data;
+    input  [31:0] Reg_data1, Reg_data2; 
+    output [31:0] Branch_data1, Branch_data2; 
 
     /* Parameters Part */
     localparam BEQ = 6'b000100; // opcode
