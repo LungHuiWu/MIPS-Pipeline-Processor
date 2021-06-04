@@ -1,5 +1,7 @@
 `include "cache.v"
 `include "ALU.v"
+`include "Control.v"
+`include "Register.v"
 // Top module of your design, you cannot modify this module!!
 module CHIP (	clk,
 				rst_n,
@@ -118,6 +120,7 @@ wire [31:0] DCACHE_rdata;
         .mem_rdata  (mem_rdata_I) ,
         .mem_ready  (mem_ready_I)
 	);
+);
 
 endmodule
 
@@ -159,7 +162,7 @@ reg 	[31:0]	S1_inst, S1_inst_nxt;
 reg 	[1:0] 	S2_WB, S2_WB_nxt;
 // M = Branch + MemRead + MemWrite
 reg		[2:0]	S2_M, S2_M_nxt;
-// EX = RegDst + ALUOp + ALUSrc
+// EX = RegDst + ALUSrc + ALUControl
 reg 	[3:0]	S2_EX, S2_EX_nxt;
 reg 	[31:0]	S2_PC, S2_PC_nxt;
 reg 	[31:0]	S2_rdata1, S2_rdata1_nxt;
@@ -181,11 +184,50 @@ reg 	[31:0]	S4_ALUResult, S4_ALUResult_nxt;
 reg 	[4:0]	S4_I, S4_I_nxt;
 
 //========= Wire ============================
-wire 	PCSrc;
-wire 	RegWrite;
-wire 	[31:0]	WriteData;
-wire 	[4:0]	WriteReg;
+wire 	        PCSrc;
 
+//========= Registers =========================
+wire            RegWrite;
+wire    [4:0]   ReadReg1;
+wire    [4:0]   ReadReg2;    
+wire 	[4:0]	WriteReg;
+wire 	[31:0]	WriteData;
+wire 	[31:0]	ReadData1;
+wire 	[31:0]	ReadData2;
+
+Registers(
+    .clk(clk), 
+    .rst_n(rst_n),
+    .RegWrite(RegWrite),
+    .Read_register_1(ReadReg1),
+    .Read_register_2(ReadReg2),
+    .Write_register(WriteReg),
+    .Write_data(WriteData),
+    .Read_data_1(ReadData1),
+    .Read_data_2(ReadData2),
+);
+//========= Control =========================
+
+wire 	[1:0]   WB; 
+wire 	[2:0]   M;
+wire 	[5:0]   EX;
+wire 	        Jump;
+
+Control control(
+    .opcode(S1_inst[31:26]),
+    .funct(S1_inst[5:0]),
+    .WB(WB),
+    .M(M),
+    .EX(EX),
+    .Jump(Jump)
+);
+//========= ALU =============================
+ALU alu(
+    .in1(),
+    .in2(),
+    .out(),
+    .ALUControl(S2_EX[3:0])
+);
 //========= First Part ======================
 // IF
 
@@ -222,12 +264,12 @@ always @(*) begin
     S2_I3_nxt = S2_I3;
 
     if(!ICACHE_stall && !DCACHE_stall) begin
-        S2_WB_nxt = {RegWrite, MemToReg};           // from Control WB     
-        S2_M_nxt = {Branch, MemRead, MemWrite};     // from Control M      
-        S2_EX_nxt = {RegDst, ALUOp, ALUSrc};        // from Control EX    
+        S2_WB_nxt = WB;        // from Control WB     
+        S2_M_nxt = M;          // from Control M      
+        S2_EX_nxt = EX;        // from Control EX    
         S2_PC_nxt = S1_PC;
-        S2_rdata1_nxt = ReadReg1,    // to Registers ReadReg1
-        S2_rdata2_nxt = ReadReg2;    // to Registers ReadReg2
+        S2_rdata1_nxt = ReadData1,    // from Registers ReadData1
+        S2_rdata2_nxt = ReadData2;    // from Registers ReadData2
         S2_I1_nxt = {{16{S1_inst[15]}},S1_inst[15:0]};
         S2_I2_nxt = S1_inst[20:16];
         S2_I3_nxt = S1_inst[15:11];
