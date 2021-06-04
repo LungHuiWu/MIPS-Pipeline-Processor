@@ -26,7 +26,7 @@ module L1(
     output  [31:0]  proc_rdata;
     // L2 cache interface
     input           ready;
-    input   [31:0]  rdata;
+    input   [127:0] rdata;
     output  [31:0]  wdata;
     output          read, write;
     output          reset;
@@ -37,6 +37,7 @@ module L1(
     parameter WORDLEN = 32;
     parameter ENTRY = 4;
     parameter BYTEOFFSET = 2;
+    parameter WORDPERDATA = 4;
     parameter SET_NUM = 2;
     // TAGLEN = 32 - 2(Byte Offset) - ln(4(Words per data)) - ln(4(Entry))
     parameter TAGLEN = 26;
@@ -64,8 +65,8 @@ module L1(
         reg     [1:0]   set, set_nxt;
         reg     [1:0]   state, state_nxt;
     // Cache memory
-        reg     [WORDLEN*4-1 : 0]   cache       [0:ENTRY-1][0:SET_NUM-1];
-        reg     [WORDLEN*4-1 : 0]   cache_nxt   [0:ENTRY-1][0:SET_NUM-1];
+        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache       [0:ENTRY-1][0:SET_NUM-1];
+        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache_nxt   [0:ENTRY-1][0:SET_NUM-1];
         reg     [TAGLEN-1 : 0]      tag         [0:ENTRY-1][0:SET_NUM-1];
         reg     [TAGLEN-1 : 0]      tag_nxt     [0:ENTRY-1][0:SET_NUM-1];
         reg     valid       [0:ENTRY-1][0:SET_NUM-1];
@@ -174,7 +175,7 @@ module L1(
                         state_nxt = ALLOCATE;
                         set_nxt = ONE;
                     end
-                    else if (!dirty[entry_now][0]) begin
+                    else if (!dirty[entry_now][1]) begin
                         state_nxt = ALLOCATE;
                         set_nxt = TWO;
                     end
