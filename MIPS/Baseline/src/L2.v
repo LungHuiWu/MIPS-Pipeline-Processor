@@ -142,7 +142,6 @@ module L2(
                             cache_nxt[entry_now][set_now] = wdata;
                         end
                     end
-////////////////////////////////////////////////////////////////////////
                     else begin // miss
                         ready_nxt = 0;
                         m_cnt_nxt = m_cnt + 1;
@@ -150,24 +149,37 @@ module L2(
                             state_nxt = WRITEBACK;
                             set_nxt = ONE;
                         end
+                        else begin
+                            if (!dirty[entry_now][0]) begin
+                                state_nxt = ALLOCATE;
+                                set_nxt = ONE;
+                            end
+                            else if (!dirty[entry_now][1]) begin
+                                state_nxt = ALLOCATE;
+                                set_nxt = TWO;
+                            end
+                            else if (!dirty[entry_now][2]) begin
+                                state_nxt = ALLOCATE;
+                                set_nxt = THREE;
+                            end
+                            else if (!dirty[entry_now][3]) begin
+                                state_nxt = ALLOCATE;
+                                set_nxt = FOUR;
+                            end
+                        end
                     end
                 end
                 WRITEBACK: begin
-                    proc_stall_nxt = 1;
+                    ready_nxt = 0;
                     set_nxt = set;
-                    state_nxt = ready ? ALLOCATE : WRITEBACK;
-                    if (!ready) begin
-                        write_nxt = 1;
-                        if (set == ONE) begin
-                            wdata_nxt = cache[entry_now][0];
-                            addr_nxt = {tag[entry_now][0], entry_now};
-                        end
-                        else if (set == TWO) begin
-                            wdata_nxt = cache[entry_now][1];
-                            addr_nxt = {tag[entry_now][1], entry_now};
-                        end
+                    state_nxt = mem_ready ? ALLOCATE : WRITEBACK;
+                    if (!mem_ready) begin
+                        mem_write_nxt = 1;
+                        mem_wdata_nxt = cache[entry_now][set];
+                        mem_addr_nxt = {tag[entry_now][set], entry_now};
                     end
                 end
+//////////////////////////////////////////////////////////                
                 ALLOCATE: begin
                     proc_stall_nxt = 1;
                     set_nxt = set;
