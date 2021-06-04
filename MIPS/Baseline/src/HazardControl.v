@@ -46,7 +46,7 @@
 
 module HazardControl ( // stall or flush control
     // input
-    IdExRt,
+    IdExRt
     IdExRd, // right after Rd, Rt mux
     IfIdRs,
     IfIdRt,
