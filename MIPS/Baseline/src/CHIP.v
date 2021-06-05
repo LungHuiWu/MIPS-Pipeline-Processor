@@ -2,6 +2,7 @@
 `include "ALU.v"
 `include "Control.v"
 `include "Register.v"
+`include "ForwardUnit.v"
 // Top module of your design, you cannot modify this module!!
 module CHIP (	clk,
 				rst_n,
@@ -185,6 +186,8 @@ reg 	[4:0]	S4_I, S4_I_nxt;
 
 //========= Wire ============================
 wire 	        PCSrc;
+wire 	[31:0]	PC4_A_SE_SL2;	// PC+4 + Address with Sign Extend Shift Left 2
+wire 			Equal;			// ReadData1 and ReadData2 are equal					
 
 //========= Registers =========================
 wire            RegWrite;
@@ -195,7 +198,7 @@ wire 	[31:0]	WriteData;
 wire 	[31:0]	ReadData1;
 wire 	[31:0]	ReadData2;
 
-Registers(
+Registers register(
     .clk(clk), 
     .rst_n(rst_n),
     .RegWrite(RegWrite),
@@ -222,11 +225,29 @@ Control control(
     .Jump(Jump)
 );
 //========= ALU =============================
+wire 	[31:0]	Alu_data1;
+wire 	[31:0]	Alu_data2;
+
 ALU alu(
-    .in1(),
-    .in2(),
+    .in1(Alu_data1),
+    .in2(Alu_data2),
     .out(),
     .ALUControl(S2_EX[3:0])
+);
+//========= Forwarding Unit==================
+ForwardUnit FWU(
+    .ExMemRd(S3_I), 
+    .MemWbRd(S4_I),
+    .IdExRs(S2_I2),
+    .IdExRt(S2_I3),
+    .ExMem_RegWrite(S3_WB[1]),
+    .MemWb_RegWrite(S4_WB[1]),
+    .ExMem_data(S3_ALUResult),
+    .MemWb_data(WriteData),
+    .IdEx_data1(S2_rdata1),
+    .IdEx_data2(S2_rdata2),
+    .Alu_data1(Alu_data1),
+    .Alu_data2(Alu_data2)
 );
 //========= First Part ======================
 // IF
@@ -236,7 +257,7 @@ always @(*) begin
     S1_inst_nxt = S1_inst;
     if(!ICACHE_stall && !DCACHE_stall) begin
         if (PCSrc) begin
-            S1_PC_nxt = S3_Add;         // for branch
+            S1_PC_nxt = PC4_A_SE_SL2 + 4;         // for branch
         end
         else begin
             S1_PC_nxt = S1_PC + 4;      // normal
@@ -250,7 +271,9 @@ assign	RegWrite = S4_WB[1];
 assign	WriteData = S4_WB[0] ? S4_rdata : S4_ALUResult;
 assign	WriteReg = S4_I;
 assign  ReadReg1 = S1_inst[25:21];
-assign  ReadReg2 = S1_inst[20:26];
+assign  ReadReg2 = S1_inst[20:16];
+assign 	PC4_A_SE_SL2 = S1_PC + {{16{S1_inst[15]}},S1_inst[15:0]}<<2;
+assign  Equal = (ReadData1 == ReadData2);	
 
 always @(*) begin
     S2_WB_nxt = S2_WB;
