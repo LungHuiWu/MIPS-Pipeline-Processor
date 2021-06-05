@@ -7,6 +7,7 @@ module L1(
     proc_rdata,
     proc_wdata,
     proc_stall,
+    stall,
     reset,
     addr,
     read,
@@ -14,7 +15,7 @@ module L1(
     wdata,
     rdata,
     ready
-)
+);
 //==== Input/Output definition ====
     input           clk;
     // processor intrface
@@ -25,9 +26,10 @@ module L1(
     output          proc_stall;
     output  [31:0]  proc_rdata;
     // L2 cache interface
+    input           stall;
     input           ready;
     input   [127:0] rdata;
-    output  [31:0]  wdata;
+    output  [127:0] wdata;
     output          read, write;
     output          reset;
     output  [27:0]  addr;
@@ -56,7 +58,7 @@ module L1(
     // Output
         reg     proc_stall, proc_stall_nxt;
         reg     [31:0]  proc_rdata, proc_rdata_nxt;
-        reg     [31:0]  wdata, wdata_nxt;
+        reg     [127:0]  wdata, wdata_nxt;
         reg     read, read_nxt;
         reg     write, write_nxt;
         reg     [27:0]  addr, addr_nxt;
@@ -74,7 +76,7 @@ module L1(
         reg     dirty       [0:ENTRY-1][0:SET_NUM-1];
         reg     dirty_nxt   [0:ENTRY-1][0:SET_NUM-1];
     // Partition of address
-        wire    [ENTRY-1:0]             entry_now;
+        wire    [1:0]                   entry_now;
         wire    [TAGLEN-1:0]            tag_now;
         wire    [BYTEOFFSET-1:0]        word_idx;
     // Hit, Miss, Read, Write
@@ -85,6 +87,7 @@ module L1(
         reg     [15:0]  t_cnt, t_cnt_nxt;
     // integer
         integer i, j;
+        genvar  k;
 
 //==== Combinational ====
 
@@ -93,138 +96,176 @@ module L1(
     assign  tag_now     =   proc_addr[29:4];
 
     // Hit, Miss, Read, Write
-    for(i=0;i<SET_NUM;i=i+1) begin
-        assign hit_each[i] = valid[entry_now][i] && (tag[entry_now][i] == tag_now);
-    end
+    generate
+        for(k=0;k<SET_NUM;k=k+1) begin
+            assign hit_each[k] = valid[entry_now][k] && (tag[entry_now][k] == tag_now);
+        end
+    endgenerate
     assign hit = |hit_each;
 
     // FSM
     always @(*) begin
-        state_nxt = IDLE;
-        set_nxt = NONE;
-        proc_stall_nxt = 0;
-        t_cnt_nxt = t_cnt + 1;
-        m_cnt_nxt = m_cnt;
-        cache_nxt   = cache;
-        valid_nxt   = valid;
-        tag_nxt     = tag;
-        dirty_nxt   = dirty;
-        proc_rdata_nxt  = 0;
-        wdata_nxt       = 0;
-        read_nxt        = 0;
-        write_nxt       = 0;
-        addr_nxt        = 0;
-        case (state)
-            IDLE: begin
-                if (proc_read || proc_write) begin
-                    state_nxt = COMPARE;
-                    proc_stall_nxt = 1;
-                    set_nxt = NONE;
+        if (stall) begin
+            state_nxt = state;
+            set_nxt = set;
+            proc_stall_nxt = proc_stall;
+            t_cnt_nxt = t_cnt;
+            m_cnt_nxt = m_cnt;
+            for (i=0 ; i<ENTRY ; i=i+1) begin
+                for (j=0 ; j<SET_NUM ; j=j+1) begin
+                    cache_nxt[i][j]     = cache[i][j];
+                    tag_nxt[i][j]       = tag[i][j];
+                    dirty_nxt[i][j]     = dirty[i][j];
+                    valid_nxt[i][j]     = valid[i][j];
                 end
-            end 
-            COMPARE: begin
-                if (hit) begin // hit
-                    proc_stall_nxt = 0;
-                    state_nxt = IDLE;
-                    set_nxt = NONE;
-                    // read
-                    if (proc_read) begin
-                        if (hit_each[0]) begin
-                            case (word_idx)
-                                0: proc_rdata_nxt = cache[entry_now][0][31:0];
-                                1: proc_rdata_nxt = cache[entry_now][0][63:32];
-                                2: proc_rdata_nxt = cache[entry_now][0][95:64];
-                                3: proc_rdata_nxt = cache[entry_now][0][127:96];
-                            endcase
+            end
+            proc_rdata_nxt  = proc_rdata;
+            wdata_nxt       = wdata;
+            read_nxt        = read;
+            write_nxt       = write;
+            addr_nxt        = addr;
+        end
+        else begin // !stall
+            state_nxt = IDLE;
+            set_nxt = NONE;
+            proc_stall_nxt = 0;
+            t_cnt_nxt = t_cnt;
+            m_cnt_nxt = m_cnt;
+            for (i=0 ; i<ENTRY ; i=i+1) begin
+                for (j=0 ; j<SET_NUM ; j=j+1) begin
+                    cache_nxt[i][j]     = cache[i][j];
+                    tag_nxt[i][j]       = tag[i][j];
+                    dirty_nxt[i][j]     = dirty[i][j];
+                    valid_nxt[i][j]     = valid[i][j];
+                end
+            end
+            proc_rdata_nxt  = 0;
+            wdata_nxt       = 0;
+            read_nxt        = 0;
+            write_nxt       = 0;
+            addr_nxt        = 0;
+            case (state)
+                IDLE: begin
+                    if (proc_read || proc_write) begin
+                        t_cnt_nxt = t_cnt + 1;
+                        state_nxt = COMPARE;
+                        proc_stall_nxt = 1;
+                    end
+                end 
+                COMPARE: begin
+                    if (hit) begin // hit
+                        proc_stall_nxt = 0;
+                        state_nxt = IDLE;
+                        set_nxt = NONE;
+                        // read
+                        if (proc_read) begin
+                            if (hit_each[0]) begin
+                                case (word_idx)
+                                    0: proc_rdata_nxt = cache[entry_now][0][31:0];
+                                    1: proc_rdata_nxt = cache[entry_now][0][63:32];
+                                    2: proc_rdata_nxt = cache[entry_now][0][95:64];
+                                    3: proc_rdata_nxt = cache[entry_now][0][127:96];
+                                endcase
+                            end
+                            else begin
+                                case (word_idx)
+                                    0: proc_rdata_nxt = cache[entry_now][1][31:0];
+                                    1: proc_rdata_nxt = cache[entry_now][1][63:32];
+                                    2: proc_rdata_nxt = cache[entry_now][1][95:64];
+                                    3: proc_rdata_nxt = cache[entry_now][1][127:96];
+                                endcase
+                            end
+                        end
+                        // write
+                        else begin
+                            if (hit_each[0]) begin
+                                dirty_nxt[entry_now][0] = 1;
+                                case (word_idx)
+                                    0: cache_nxt[entry_now][0][31:0] = proc_wdata;
+                                    1: cache_nxt[entry_now][0][63:32] = proc_wdata;
+                                    2: cache_nxt[entry_now][0][95:64] = proc_wdata;
+                                    3: cache_nxt[entry_now][0][127:96] = proc_wdata;
+                                endcase
+                            end
+                            else begin
+                                dirty_nxt[entry_now][1] = 1;
+                                case (word_idx)
+                                    0: cache_nxt[entry_now][1][31:0] = proc_wdata;
+                                    1: cache_nxt[entry_now][1][63:32] = proc_wdata;
+                                    2: cache_nxt[entry_now][1][95:64] = proc_wdata;
+                                    3: cache_nxt[entry_now][1][127:96] = proc_wdata;
+                                endcase
+                            end
+                        end
+                    end
+                    else begin // miss
+                        proc_stall_nxt = 1;
+                        m_cnt_nxt = m_cnt + 1;
+                        if (!dirty[entry_now][0]) begin
+                            state_nxt = ALLOCATE;
+                            set_nxt = ONE;
+                            read_nxt = 1;
+                            addr_nxt = proc_addr[29:2];
+                        end
+                        else if (!dirty[entry_now][1]) begin
+                            state_nxt = ALLOCATE;
+                            set_nxt = TWO;
+                            read_nxt = 1;
+                            addr_nxt = proc_addr[29:2];
                         end
                         else begin
-                            case (word_idx)
-                                0: proc_rdata_nxt = cache[entry_now][1][31:0];
-                                1: proc_rdata_nxt = cache[entry_now][1][63:32];
-                                2: proc_rdata_nxt = cache[entry_now][1][95:64];
-                                3: proc_rdata_nxt = cache[entry_now][1][127:96];
-                            endcase
-                        end
-                    end
-                    // write
-                    else if (proc_write) begin
-                        if (hit_each[0]) begin
-                            dirty_nxt[entry_now][0] = 0;
-                            case (word_idx)
-                                0: cache_nxt[entry_now][0][31:0] = proc_wdata;
-                                1: cache_nxt[entry_now][0][63:32] = proc_wdata;
-                                2: cache_nxt[entry_now][0][95:64] = proc_wdata;
-                                3: cache_nxt[entry_now][0][128:96] = proc_wdata;
-                            endcase
-                        end
-                        else begin
-                            dirty_nxt[entry_now][1] = 0;
-                            case (word_idx)
-                                0: cache_nxt[entry_now][1][31:0] = proc_wdata;
-                                1: cache_nxt[entry_now][1][63:32] = proc_wdata;
-                                2: cache_nxt[entry_now][1][95:64] = proc_wdata;
-                                3: cache_nxt[entry_now][1][128:96] = proc_wdata;
-                            endcase
+                            state_nxt = WRITEBACK;
+                            set_nxt = ONE;
+                            write_nxt = 1;
+                            addr_nxt = {tag[entry_now][0], entry_now};
                         end
                     end
                 end
-                else begin // miss
+                WRITEBACK: begin
                     proc_stall_nxt = 1;
-                    m_cnt_nxt = m_cnt + 1;
-                    if (!dirty[entry_now][0]) begin
-                        state_nxt = ALLOCATE;
-                        set_nxt = ONE;
-                    end
-                    else if (!dirty[entry_now][1]) begin
-                        state_nxt = ALLOCATE;
-                        set_nxt = TWO;
+                    set_nxt = set;
+                    state_nxt = ready ? ALLOCATE : WRITEBACK;
+                    if (!ready) begin
+                        write_nxt = 1;
+                        if (set == ONE) begin
+                            wdata_nxt = cache[entry_now][0];
+                            addr_nxt = {tag[entry_now][0], entry_now};
+                        end
+                        else if (set == TWO) begin
+                            wdata_nxt = cache[entry_now][1];
+                            addr_nxt = {tag[entry_now][1], entry_now};
+                        end
                     end
                     else begin
-                        state_nxt = WRITEBACK;
-                        set_nxt = ONE;
+                        dirty_nxt[entry_now][set] = 0;
                     end
                 end
-            end
-            WRITEBACK: begin
-                proc_stall_nxt = 1;
-                set_nxt = set;
-                state_nxt = ready ? ALLOCATE : WRITEBACK;
-                if (!ready) begin
-                    write_nxt = 1;
-                    if (set == ONE) begin
-                        wdata_nxt = cache[entry_now][0];
-                        addr_nxt = {tag[entry_now][0], entry_now};
+                ALLOCATE: begin
+                    proc_stall_nxt = 1;
+                    set_nxt = set;
+                    if (!ready) begin
+                        state_nxt = ALLOCATE;
+                        read_nxt = 1;
+                        addr_nxt = proc_addr[29:2];
                     end
-                    else if (set == TWO) begin
-                        wdata_nxt = cache[entry_now][1];
-                        addr_nxt = {tag[entry_now][1], entry_now};
-                    end
-                end
-            end
-            ALLOCATE: begin
-                proc_stall_nxt = 1;
-                set_nxt = set;
-                state_nxt = ready ? COMPARE: ALLOCATE;
-                if (!ready) begin
-                    read_nxt = 1;
-                    addr_nxt = proc_addr[29:2];
-                end
-                else begin
-                    if (set == ONE) begin
-                        tag_nxt[entry_now][0] = tag_now;
-                        valid_nxt[entry_now][0] = 1;
-                        dirty_nxt[entry_now][0] = 0;
-                        cache_nxt[entry_now][0] = rdata;
-                    end
-                    else if (set == TWO) begin
-                        tag_nxt[entry_now][1] = tag_now;
-                        valid_nxt[entry_now][1] = 1;
-                        dirty_nxt[entry_now][1] = 0;
-                        cache_nxt[entry_now][1] = rdata;
+                    else begin
+                        state_nxt = COMPARE;
+                        if (set == ONE) begin
+                            tag_nxt[entry_now][0] = tag_now;
+                            valid_nxt[entry_now][0] = 1;
+                            dirty_nxt[entry_now][0] = 0;
+                            cache_nxt[entry_now][0] = rdata;
+                        end
+                        else if (set == TWO) begin
+                            tag_nxt[entry_now][1] = tag_now;
+                            valid_nxt[entry_now][1] = 1;
+                            dirty_nxt[entry_now][1] = 0;
+                            cache_nxt[entry_now][1] = rdata;
+                        end
                     end
                 end
-            end
-        endcase
+            endcase
+        end
     end
 
 //==== Sequetial ====

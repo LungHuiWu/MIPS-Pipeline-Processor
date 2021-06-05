@@ -37,11 +37,10 @@ module L2_Cache(
 // ==== Wires & Regs ======================================
 
     wire     reset;
-    wire     [27:0]  addr;
+    wire     [29:0]  addr;
     wire     read, write;
-    wire     [127:0]  wdata, rdata;
+    wire     [31:0]  wdata, rdata;
     wire     ready;
-    wire     stall;
 
 // ==== Link Submodule ====================================
 
@@ -60,8 +59,7 @@ module L2_Cache(
         .write      (write) ,
         .wdata      (wdata) ,
         .rdata      (rdata) ,
-        .ready      (ready),
-        .stall      (stall)
+        .ready      (ready)
     );
 
     L2  l2(
@@ -73,14 +71,13 @@ module L2_Cache(
         .wdata      (wdata) ,
         .rdata      (rdata) ,
         .ready      (ready) ,
-        .stall      (stall) ,
         .mem_read   (mem_read)  ,
         .mem_write  (mem_write) ,
         .mem_addr   (mem_addr)  ,
         .mem_wdata  (mem_wdata) ,
         .mem_rdata  (mem_rdata) ,
         .mem_ready  (mem_ready)
-    );
+    )
 
 endmodule
 
