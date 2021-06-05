@@ -1,7 +1,7 @@
 `include "cache.v"
 `include "ALU.v"
 `include "Control.v"
-`include "Register.v"
+`include "Registers.v"
 `include "ForwardUnit.v"
 `include "HazardControl.v"
 // Top module of your design, you cannot modify this module!!
@@ -25,7 +25,7 @@ module CHIP (	clk,
 				DCACHE_addr, 
 				DCACHE_wdata,
 				DCACHE_wen   
-			);
+);
 input			clk, rst_n;
 //--------------------------
 
@@ -122,7 +122,6 @@ wire [31:0] DCACHE_rdata;
         .mem_rdata  (mem_rdata_I) ,
         .mem_ready  (mem_ready_I)
 	);
-);
 
 endmodule
 
@@ -196,7 +195,30 @@ wire 	[4:0]	WriteReg;
 wire 	[31:0]	WriteData;
 wire 	[31:0]	ReadData1;
 wire 	[31:0]	ReadData2;
-
+//========= Control =========================
+wire 	[1:0]   WB; 
+wire 	[1:0]   M;
+wire 	[5:0]   EX;
+wire            Beq;
+wire            Bne;
+wire 	        Jump;
+//========= Hazard Control ====================
+wire CtrlMux;
+wire Pc_Write;
+wire IfId_Write;
+wire If_Flush;
+wire [10:0] CtrlMuxOut;
+//========= ALU =============================
+wire 	[31:0]	Alu_data1;
+wire 	[31:0]	Alu_data2;
+wire	[31:0]	ALUResult;
+//========= Branch Forwarding Unit=============
+wire [31:0] Branch_data1;
+wire [31:0] Branch_data2;
+//========= EX Part==============t=============
+wire    [4:0]   RegDstOut;
+wire    [31:0]  ReadData2orImm;
+//========= Registers =========================
 Registers register(
     .clk(clk), 
     .rst_n(rst_n),
@@ -206,17 +228,11 @@ Registers register(
     .Write_register(WriteReg),
     .Write_data(WriteData),
     .Read_data_1(ReadData1),
-    .Read_data_2(ReadData2),
+    .Read_data_2(ReadData2)
 );
 
 //========= Hazard Control ====================
-wire CtrlMux;
-wire Pc_Write;
-wire IfId_Write;
-wire If_Flush;
-wire [10:0] CtrlMuxOut; 
 assign CtrlMuxOut = (CtrlMux) ? {WB, M, EX} : 11'b0;
-
 HazardControl HC(
 	.IdExRt(S2_I2),
 	.IdExRd(RegDstOut),
@@ -237,14 +253,6 @@ HazardControl HC(
 );
 
 //========= Control =========================
-
-wire 	[1:0]   WB; 
-wire 	[1:0]   M;
-wire 	[5:0]   EX;
-wire            Beq;
-wire            Bne;
-wire 	        Jump;
-
 Control control(
     .opcode(S1_inst[31:26]),
     .funct(S1_inst[5:0]),
@@ -256,10 +264,6 @@ Control control(
     .Jump(Jump)
 );
 //========= ALU =============================
-wire 	[31:0]	Alu_data1;
-wire 	[31:0]	Alu_data2;
-wire	[31:0]	ALUResult;
-
 ALU alu(
     .in1(Alu_data1),
     .in2(Alu_data2),
@@ -283,11 +287,8 @@ ForwardUnit FWU(
     .Alu_data2(Alu_data2)
 );
 
-//========= Forwarding Unit==================
-wire [31:0] Branch_data1;
-wire [31:0] Branch_data2;
-
-module ForwardBranchUnit (
+//========= Branch Forwarding Unit==================
+ForwardBranchUnit FWBU(
     .ExMemRd(S3_I), 
     .IfIdRs(S1_inst[25:21]),
     .IfIdRt(S1_inst[20:16]),
@@ -336,7 +337,7 @@ assign	WriteReg = S4_I;
 assign  ReadReg1 = S1_inst[25:21];
 assign  ReadReg2 = S1_inst[20:16];
 assign 	PC4_A_SE_SL2 = S1_PC + {{16{S1_inst[15]}},S1_inst[15:0]}<<2;
-assign  Equal = (BranchData1 == BranchData2);	
+assign  Equal = (Branch_data1 == Branch_data2);	
 assign	PCSrc = (Beq && Equal) || (Bne && !Equal);
 
 always @(*) begin
@@ -353,7 +354,7 @@ always @(*) begin
         S2_WB_nxt = CtrlMuxOut[10:9];       // from Control WB     
         S2_M_nxt  = CtrlMuxOut[8:6];        // from Control M      
         S2_EX_nxt = CtrlMuxOut[5:0];        // from Control EX    
-        S2_rdata1_nxt = ReadData1,    // from Registers ReadData1
+        S2_rdata1_nxt = ReadData1;    // from Registers ReadData1
         S2_rdata2_nxt = ReadData2;    // from Registers ReadData2
 		S2_Rs_nxt = S1_inst[25:21];
         S2_I1_nxt = {{16{S1_inst[15]}},S1_inst[15:0]}; // extended immediate
@@ -364,8 +365,6 @@ end
 
 //========= Second Part =====================
 // EX
-wire    [4:0]   RegDstOut;
-wire    [31:0]  ReadData2orImm;
 assign	ReadData2orImm = S2_EX[4] ? S2_I1 : S2_rdata2;
 assign  RegDstOut = (S2_EX[5]) ? S2_I3 : S2_I2;
 always @(*) begin
@@ -438,7 +437,6 @@ always @(posedge clk or negedge rst_n) begin
 		S2_rdata2 		<= S2_rdata2_nxt;
 		S3_WB 			<= S3_WB_nxt;
 		S3_M 			<= S3_M_nxt;
-		S3_Zero 		<= S3_Zero_nxt;
 		S3_ALUResult 	<= S3_ALUResult_nxt;
 		S3_rdata 		<= S3_rdata_nxt;
 		S3_I 			<= S3_I_nxt;

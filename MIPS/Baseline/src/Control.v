@@ -144,7 +144,7 @@ always @(*) begin
         end
         6'b000010: begin // J
             ALUControl = ADD;
-            Jump        = 1'b1
+            Jump        = 1'b1;
         end
         6'b000011: begin // JAL
             ALUControl = ADD;

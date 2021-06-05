@@ -5,9 +5,9 @@ module ALU(
     ALUControl
 );
 
-input   [31:0]      in1, in2;
-output  [31:0]      out;
-input   [3:0]       ALUControl;
+input      [31:0]      in1, in2;
+output reg [31:0]      out;
+input      [3:0]       ALUControl;
 
 always @(*) begin
     case (ALUControl)
@@ -36,12 +36,12 @@ always @(*) begin
             out = $signed(in1) >>> in2; // sra
         end
         4'b1100: begin
-            out = in1 ~| in2; // nor
+            out = ~(in1 | in2); // nor
         end
         4'b1110: begin
             out = (in1 < in2); // sltu
         end
-        4'b0011 begin
+        4'b0011: begin
             out = in1 >> in2; // srl
         end
         default: begin
