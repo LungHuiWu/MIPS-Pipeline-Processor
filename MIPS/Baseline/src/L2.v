@@ -178,29 +178,20 @@ module L2(
                         mem_wdata_nxt = cache[entry_now][set];
                         mem_addr_nxt = {tag[entry_now][set], entry_now};
                     end
-                end
-//////////////////////////////////////////////////////////                
+                end            
                 ALLOCATE: begin
-                    proc_stall_nxt = 1;
+                    ready_nxt = 0;
                     set_nxt = set;
-                    state_nxt = ready ? COMPARE: ALLOCATE;
-                    if (!ready) begin
-                        read_nxt = 1;
-                        addr_nxt = proc_addr[29:2];
+                    state_nxt = mem_ready ? COMPARE: ALLOCATE;
+                    if (!mem_ready) begin
+                        mem_read_nxt = 1;
+                        mem_addr_nxt = addr;
                     end
                     else begin
-                        if (set == ONE) begin
-                            tag_nxt[entry_now][0] = tag_now;
-                            valid_nxt[entry_now][0] = 1;
-                            dirty_nxt[entry_now][0] = 0;
-                            cache_nxt[entry_now][0] = rdata;
-                        end
-                        else if (set == TWO) begin
-                            tag_nxt[entry_now][1] = tag_now;
-                            valid_nxt[entry_now][1] = 1;
-                            dirty_nxt[entry_now][1] = 0;
-                            cache_nxt[entry_now][1] = rdata;
-                        end
+                        tag_nxt[entry_now][set] = tag_now;
+                        valid_nxt[entry_now][set] = 1;
+                        dirty_nxt[entry_now][set] = 0;
+                        cache_nxt[entry_now][set] = mem_rdata;
                     end
                 end
             endcase
@@ -220,12 +211,12 @@ module L2(
                     valid[i][j]     <= 0;
                 end
             end
-            proc_stall  <= 0;
-            proc_rdata  <= 0;
-            wdata       <= 0;
-            read        <= 0;
-            write       <= 0;
-            addr        <= 0;
+            ready       <= 0;
+            rdata       <= 0;
+            mem_wdata   <= 0;
+            mem_read    <= 0;
+            mem_write   <= 0;
+            mem_addr    <= 0;
             m_cnt       <= 0;
             t_cnt       <= 0;
         end
@@ -240,12 +231,12 @@ module L2(
                     valid[i][j]     <= valid_nxt[i][j];
                 end
             end
-            proc_stall  <= proc_stall_nxt;
-            proc_rdata  <= proc_rdata_nxt;
-            wdata       <= wdata_nxt;
-            read        <= read_nxt;
-            write       <= write_nxt;
-            addr        <= addr_nxt;
+            ready       <= ready_nxt;
+            rdata       <= rdata_nxt;
+            mem_wdata   <= mem_wdata_nxt;
+            mem_read    <= mem_read_nxt;
+            mem_write   <= mem_write_nxt;
+            mem_addr    <= mem_addr_nxt;
             m_cnt       <= m_cnt_nxt;
             t_cnt       <= t_cnt_nxt;
         end
