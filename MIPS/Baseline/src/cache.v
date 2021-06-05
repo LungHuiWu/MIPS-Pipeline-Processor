@@ -1,4 +1,3 @@
-// 2 way cache
 module cache(
     clk,
     proc_reset,
@@ -64,7 +63,7 @@ module cache(
     reg     valid1_nxt  [0:BLOCKNUM-1];
     reg     dirty1      [0:BLOCKNUM-1];
     reg     dirty1_nxt  [0:BLOCKNUM-1];
-    // cache 1
+    // cache 2
     reg     [WORDLEN*4-1:0] cch2        [0:BLOCKNUM-1];
     reg     [WORDLEN*4-1:0] cch2_nxt    [0:BLOCKNUM-1];
     reg     [TAGLEN-1:0]    tag2        [0:BLOCKNUM-1];
@@ -320,7 +319,7 @@ always @(*) begin
         end
         default: begin
             // initial value
-            for(i=0;i<BLOCKNUM;i=i+1)
+            for(i=0;i<BLOCKNUM;i=i+1) begin
                 cch1_nxt[i] = cch1[i];
                 valid1_nxt[i] = valid1[i];
                 tag1_nxt[i] = tag1[i];
@@ -329,6 +328,7 @@ always @(*) begin
                 valid2_nxt[i] = valid2[i];
                 tag2_nxt[i] = tag2[i];
                 dirty2_nxt[i] = dirty2[i];
+            end
             // proc_stall_nxt = 0;
             proc_rdata_nxt = 0;
             mem_read_nxt = 0;

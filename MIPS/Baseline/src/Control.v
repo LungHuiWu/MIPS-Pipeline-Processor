@@ -3,31 +3,21 @@ module Control(
     opcode, //Instruction[31:26]
     funct,  //Instruction[5:0]
     //output 
-    // for WB    
-    RegWrite, 
-    MemToReg,
-    // for M   
-    Branch, 
-    MemRead, 
-    MemWrite,   
-    // for EX
-    RegDst, 
-    ALUControl, 
-    ALUSrc,
+    WB,
+    M,
+    EX,
+    Beq,
+    Bne,
     Jump
 );
-
-output reg       RegWrite;
-output reg       MemtoReg;
-output reg       Branch;
-output reg       MemRead;
-output reg       MemWrite;
-output reg       RegDst;
-output reg       ALUControl;
-output reg       ALUSrc;
-output reg       Jump;
-input      [5:0] opcode;
-input      [5:0] funct;
+output  [1:0] WB;
+output  [1:0] M;
+output  [5:0] EX;
+output        Jump;
+output        Beq;
+output        Bne;
+input   [5:0] opcode;
+input   [5:0] funct;
 
 parameter AND   = 4'b0000;
 parameter OR    = 4'b0001;
@@ -41,12 +31,27 @@ parameter SRA   = 4'b1011;
 parameter NOR   = 4'b1100;
 parameter SLTI  = 4'b1110;
 
+reg       RegWrite;
+reg       MemtoReg; 
+reg       Beq;     
+reg       Bne;     
+reg       MemRead;    
+reg       MemWrite;   
+reg       RegDst;     
+reg       ALUSrc;
+reg [3:0] ALUControl;
+reg       Jump;       
+
+assign WB = {RegWrite, MemtoReg};
+assign M  = {MemRead, MemWrite};
+assign EX = {RegDst, ALUSrc, ALUControl};
 
 always @(*) begin
 
     RegWrite    = 1'b1;
     MemtoReg    = 1'b0;
-    Branch      = 1'b0;
+    Beq         = 1'b0;
+    Bne         = 1'b0;
     MemRead     = 1'b0;
     MemWrite    = 1'b0;
     RegDst      = 1'b0;
@@ -119,12 +124,12 @@ always @(*) begin
         end
         6'b000100: begin // BEQ
             RegWrite    = 1'b0;
-            Branch      = 1'b1;
+            Beq      = 1'b1;
             ALUControl = SUB;
         end
         6'b000101: begin // BNE
             RegWrite    = 1'b0;
-            Branch      = 1'b1;
+            Bne      = 1'b1;
             ALUControl = SUB;
         end
         6'b100011: begin // LW
@@ -148,7 +153,8 @@ always @(*) begin
         default begin
             RegWrite    = 1'b1;
             MemtoReg    = 1'b0;
-            Branch      = 1'b0;
+            Beq         = 1'b0;
+            Bne         = 1'b0;
             MemRead     = 1'b0;
             MemWrite    = 1'b0;
             RegDst      = 1'b0;
