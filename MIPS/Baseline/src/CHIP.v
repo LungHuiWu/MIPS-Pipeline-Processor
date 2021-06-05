@@ -227,11 +227,12 @@ Control control(
 //========= ALU =============================
 wire 	[31:0]	Alu_data1;
 wire 	[31:0]	Alu_data2;
+wire	[31:0]	ALUResult;
 
 ALU alu(
     .in1(Alu_data1),
     .in2(Alu_data2),
-    .out(),
+    .out(ALUResult),
     .ALUControl(S2_EX[3:0])
 );
 //========= Forwarding Unit==================
@@ -307,13 +308,23 @@ wire 	[31:0]	ALU2;
 assign	ALU1 = S2_rdata1;
 assign	ALU2 = S2_EX[0] ? S2_I1 : S2_rdata2;
 always @(*) begin
-	S3_Add_nxt = S3_Add;
 	S3_WB_nxt = S3_WB;
 	S3_M_nxt = S3_M;
-	S3_Zero_nxt = S3_Zero;
 	S3_ALUResult_nxt = S3_ALUResult;
 	S3_rdata_nxt = S3_rdata;
 	S3_I_nxt = S3_I;
+	if(!ICACHE_stall && !DCACHE_stall) begin
+		S3_WB_nxt = S2_WB;
+		S3_M_nxt = S2_M;
+		S3_ALUResult_nxt = ALUResult;
+		S3_rdata_nxt = S2_rdata2;
+		if (EX[5]) begin
+			S3_I_nxt = S2_I3;
+		end
+		else begin
+			S3_I_nxt = S2_I2;
+		end
+	end
 end
 
 // MEM
