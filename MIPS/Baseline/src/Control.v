@@ -6,12 +6,16 @@ module Control(
     WB,
     M,
     EX,
+    Beq,
+    Bne,
     Jump
 );
 output  [1:0] WB;
-output  [2:0] M;
+output  [1:0] M;
 output  [5:0] EX;
 output        Jump;
+output        Beq;
+output        Bne;
 input   [5:0] opcode;
 input   [5:0] funct;
 
@@ -29,7 +33,8 @@ parameter SLTI  = 4'b1110;
 
 reg       RegWrite;
 reg       MemtoReg; 
-reg       Branch;     
+reg       Beq;     
+reg       Bne;     
 reg       MemRead;    
 reg       MemWrite;   
 reg       RegDst;     
@@ -38,14 +43,15 @@ reg [3:0] ALUControl;
 reg       Jump;       
 
 assign WB = {RegWrite, MemtoReg};
-assign M = {Branch, MemRead, MemWrite};
+assign M  = {MemRead, MemWrite};
 assign EX = {RegDst, ALUSrc, ALUControl};
 
 always @(*) begin
 
     RegWrite    = 1'b1;
     MemtoReg    = 1'b0;
-    Branch      = 1'b0;
+    Beq         = 1'b0;
+    Bne         = 1'b0;
     MemRead     = 1'b0;
     MemWrite    = 1'b0;
     RegDst      = 1'b0;
@@ -118,12 +124,12 @@ always @(*) begin
         end
         6'b000100: begin // BEQ
             RegWrite    = 1'b0;
-            Branch      = 1'b1;
+            Beq      = 1'b1;
             ALUControl = SUB;
         end
         6'b000101: begin // BNE
             RegWrite    = 1'b0;
-            Branch      = 1'b1;
+            Bne      = 1'b1;
             ALUControl = SUB;
         end
         6'b100011: begin // LW
@@ -147,7 +153,8 @@ always @(*) begin
         default begin
             RegWrite    = 1'b1;
             MemtoReg    = 1'b0;
-            Branch      = 1'b0;
+            Beq         = 1'b0;
+            Bne         = 1'b0;
             MemRead     = 1'b0;
             MemWrite    = 1'b0;
             RegDst      = 1'b0;
