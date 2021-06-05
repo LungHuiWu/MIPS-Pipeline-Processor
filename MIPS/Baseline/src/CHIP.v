@@ -154,7 +154,6 @@ output  [29:0] 	DCACHE_addr;
 output  [31:0] 	DCACHE_wdata;
 input         	DCACHE_stall;
 input  	[31:0] 	DCACHE_rdata;
-
 //========= Pipeline Reg Declaration =========
 //--------- First Half -----------------------
 reg 	[31:0]	S1_PC, S1_PC_nxt;
@@ -215,9 +214,12 @@ wire	[31:0]	ALUResult;
 //========= Branch Forwarding Unit=============
 wire [31:0] Branch_data1;
 wire [31:0] Branch_data2;
-//========= EX Part==============t=============
+//========= EX Part============================
 wire    [4:0]   RegDstOut;
 wire    [31:0]  ReadData2orImm;
+//========= Instruction Cache ============================
+assign ICACHE_ren = 1'b1;
+assign ICACHE_wen = 1'b0;
 //========= Registers =========================
 Registers register(
     .clk(clk), 
