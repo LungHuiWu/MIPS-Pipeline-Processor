@@ -54,14 +54,9 @@ module HazardControl ( // stall or flush control
     IdEx_MemRead,
     IdEx_RegWrite,
     ExMem_MemRead,
-    IfId_isBranchType, // from ID stage controller. isBranchType => BEQ, BNE, JR, JALR
-      IfId_isJ, 
-      IfId_isJR, 
-      IfId_isJAL, 
-      IfId_isJALR, 
-      IfId_isBEQ, 
-      IfId_isBNE, 
-      IfId_Equal,
+    IfId_Opcode,
+    IfId_Funct4b,
+    IfId_Equal,
     // output
     Ctrl_Flush,
     Pc_Write,
@@ -74,9 +69,28 @@ module HazardControl ( // stall or flush control
     input [4:0] ExMemRd;
     input       IdEx_MemRead, IdEx_RegWrite;
     input       ExMem_MemRead;
-    input       IfId_isBranchType;
-    input       IfId_isJ, IfId_isJR, IfId_isJAL, IfId_isJALR, IfId_isBEQ, IfId_isBNE, IfId_Equal;
+    input [5:0] IfId_Opcode;
+    input [3:0] IfId_Funct4b;
+    input       IfId_Equal;
     output reg  Ctrl_Flush, Pc_Write, IfId_Write, If_Flush;
+
+    /* Parameters Part */
+    localparam BEQ = 6'b000100; // opcode
+    localparam BNE = 6'b000101;
+    localparam J   = 6'b000010;
+    localparam JAL = 6'b000011;
+
+    localparam R_type = 6'b000000; // opcode
+    localparam JR     = 4'b1000; // funct4b
+    localparam JALR   = 4'b1001;
+
+    /* Wires/Regs Part */
+    wire IfId_isBranchUseType; 
+    wire IfId_toBranch;
+
+    /* Assignment Part */
+    assign IfId_isBranchUseType = (IfId_Opcode == BEQ) || (IfId_Opcode == BNE) || (IfId_Opcode == R_type && (IfId_Funct4b == JR || IfId_Funct4b == JALR));
+    assign IfId_toBranch = (IfId_Opcode == BEQ && IfId_Equal) || (IfId_Opcode == BNE && !IfId_Equal) || (IfId_Opcode == R_type && (IfId_Funct4b == JR || IfId_Funct4b == JALR)) || (IfId_Opcode == J) || (IfId_Opcode == JAL);
 
     /* Combinational Part */
     always @(*) begin
@@ -86,7 +100,7 @@ module HazardControl ( // stall or flush control
             IfId_Write = 0; // IF/ID suspend, instruction decode again
             If_Flush   = 0;
         end
-        else if (IfId_isBranchType &&
+        else if (IfId_isBranchUseType &&
                  ((IdEx_RegWrite && (IdExRd  == IfIdRs || IdExRd  == IfIdRt)) || // case 3-a stall
                   (ExMem_MemRead && (ExMemRd == IfIdRs || ExMemRd == IfIdRt)))   // case 3-b second stall
                 ) begin 
@@ -95,13 +109,7 @@ module HazardControl ( // stall or flush control
             IfId_Write = 0; 
             If_Flush   = 0;        
         end
-        else if (IfId_isJ                   ||
-                 IfId_isJR                  ||
-                 IfId_isJAL                 ||
-                 IfId_isJALR                ||
-                 (IfId_isBEQ && IfId_Equal) ||
-                 (IfId_isBNE && !IfId_Equal)
-                ) begin // branch hazard flush
+        else if (IfId_toBranch) begin // branch hazard flush
             Ctrl_Flush = 0;
             Pc_Write   = 1; 
             IfId_Write = 1;  
