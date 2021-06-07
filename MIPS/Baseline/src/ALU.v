@@ -30,10 +30,10 @@ always @(*) begin
             out = in1 ^ in2; // xor
         end
         4'b1010: begin
-            out = in1 << in2; // sll
+            out = in2 << in1; // sll
         end
         4'b1011: begin
-            out = $signed(in1) >>> in2; // sra
+            out = $signed(in2) >>> in1; // sra
         end
         4'b1100: begin
             out = ~(in1 | in2); // nor
@@ -42,7 +42,7 @@ always @(*) begin
             out = (in1 < in2); // sltu
         end
         4'b0011: begin
-            out = in1 >> in2; // srl
+            out = in2 >> in1; // srl
         end
         default: begin
             out = 0;

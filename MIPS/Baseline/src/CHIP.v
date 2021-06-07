@@ -154,6 +154,7 @@ output  [29:0] 	DCACHE_addr;
 output  [31:0] 	DCACHE_wdata;
 input         	DCACHE_stall;
 input  	[31:0] 	DCACHE_rdata;
+
 //========= Pipeline Reg Declaration =========
 //--------- First Half -----------------------
 reg 	[31:0]	S1_PC, S1_PC_nxt;
@@ -163,7 +164,7 @@ reg 	[1:0] 	S2_WB, S2_WB_nxt;
 // M = Branch + MemRead + MemWrite
 reg		[1:0]	S2_M, S2_M_nxt;
 // EX = RegDst + ALUSrc + ALUControl
-reg 	[3:0]	S2_EX, S2_EX_nxt;
+reg 	[5:0]	S2_EX, S2_EX_nxt;
 reg 	[31:0]	S2_rdata1, S2_rdata1_nxt;
 reg 	[31:0]	S2_rdata2, S2_rdata2_nxt;
 reg 	[31:0]	S2_I1, S2_I1_nxt;
@@ -201,12 +202,13 @@ wire 	[5:0]   EX;
 wire            Beq;
 wire            Bne;
 wire 	        Jump;
+wire 			Shift;			
 //========= Hazard Control ====================
 wire CtrlMux;
 wire Pc_Write;
 wire IfId_Write;
 wire If_Flush;
-wire [10:0] CtrlMuxOut;
+wire [9:0] CtrlMuxOut;
 //========= ALU =============================
 wire 	[31:0]	Alu_data1;
 wire 	[31:0]	Alu_data2;
@@ -214,12 +216,14 @@ wire	[31:0]	ALUResult;
 //========= Branch Forwarding Unit=============
 wire [31:0] Branch_data1;
 wire [31:0] Branch_data2;
-//========= EX Part============================
+//========= EX Part==============t=============
 wire    [4:0]   RegDstOut;
 wire    [31:0]  ReadData2orImm;
-//========= Instruction Cache ============================
-assign ICACHE_ren = 1'b1;
-assign ICACHE_wen = 1'b0;
+
+//=============================================
+assign ICACHE_ren = 1'b1 && !DCACHE_stall;
+assign ICACHE_wen = 1'b0 && !DCACHE_stall;
+assign ICACHE_addr = S1_PC[31:2];
 //========= Registers =========================
 Registers register(
     .clk(clk), 
@@ -234,7 +238,7 @@ Registers register(
 );
 
 //========= Hazard Control ====================
-assign CtrlMuxOut = (CtrlMux) ? {WB, M, EX} : 11'b0;
+assign CtrlMuxOut = (CtrlMux) ? 10'b0 : {WB, M, EX};
 HazardControl HC(
 	.IdExRt(S2_I2),
 	.IdExRd(RegDstOut),
@@ -263,7 +267,8 @@ Control control(
     .EX(EX),
     .Beq(Beq),
     .Bne(Bne),
-    .Jump(Jump)
+    .Jump(Jump),
+	.Shift(Shift)
 );
 //========= ALU =============================
 ALU alu(
@@ -353,10 +358,10 @@ always @(*) begin
     S2_I3_nxt = S2_I3;
 
     if(!ICACHE_stall && !DCACHE_stall) begin
-        S2_WB_nxt = CtrlMuxOut[10:9];       // from Control WB     
-        S2_M_nxt  = CtrlMuxOut[8:6];        // from Control M      
+        S2_WB_nxt = CtrlMuxOut[9:8];       // from Control WB     
+        S2_M_nxt  = CtrlMuxOut[7:6];        // from Control M      
         S2_EX_nxt = CtrlMuxOut[5:0];        // from Control EX    
-        S2_rdata1_nxt = ReadData1;    // from Registers ReadData1
+        S2_rdata1_nxt = Shift ? S1_inst[10:6] : ReadData1;    // from Registers ReadData1
         S2_rdata2_nxt = ReadData2;    // from Registers ReadData2
 		S2_Rs_nxt = S1_inst[25:21];
         S2_I1_nxt = {{16{S1_inst[15]}},S1_inst[15:0]}; // extended immediate
@@ -385,7 +390,7 @@ always @(*) begin
 end
 
 // MEM
-assign 	DCACHE_addr = S3_ALUResult;
+assign 	DCACHE_addr = S3_ALUResult[31:2];
 assign	DCACHE_wdata = S3_rdata;
 assign	DCACHE_wen = S3_M[0];
 assign	DCACHE_ren = S3_M[1];

@@ -1,1 +1,8 @@
 .DS_Store
+*.fsdb
+INCA_libs/
+nWaveLog/
+*.history
+*.log
+*.conf
+*.rc

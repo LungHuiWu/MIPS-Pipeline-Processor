@@ -8,7 +8,8 @@ module Control(
     EX,
     Beq,
     Bne,
-    Jump
+    Jump,
+    Shift
 );
 output  [1:0] WB;
 output  [1:0] M;
@@ -16,6 +17,7 @@ output  [5:0] EX;
 output        Jump;
 output        Beq;
 output        Bne;
+output        Shift;
 input   [5:0] opcode;
 input   [5:0] funct;
 
@@ -40,7 +42,8 @@ reg       MemWrite;
 reg       RegDst;     
 reg       ALUSrc;
 reg [3:0] ALUControl;
-reg       Jump;       
+reg       Jump; 
+reg       Shift;       
 
 assign WB = {RegWrite, MemtoReg};
 assign M  = {MemRead, MemWrite};
@@ -58,6 +61,7 @@ always @(*) begin
     ALUControl  = ADD;
     ALUSrc      = 1'b1;
     Jump        = 1'b0;
+    Shift       = 1'b0;
 
     // brute force solution
     case (opcode)
@@ -86,12 +90,15 @@ always @(*) begin
                 end
                 6'b000000: begin // SLL
                     ALUControl  = SLL;
+                    Shift       = 1'b1;
                 end
                 6'b000011: begin // SRA
                     ALUControl  = SRA;
+                    Shift       = 1'b1;
                 end
                 6'b000010: begin // SRL
                     ALUControl  = SRL;
+                    Shift       = 1'b1;
                 end
                 6'b101010: begin // SLT
                     ALUControl  = SLT;
