@@ -8,13 +8,13 @@ module Control(
     EX,
     Beq,
     Bne,
-    Jump,
+    Jfamily,
     Shift
 );
 output  [1:0] WB;
 output  [1:0] M;
 output  [5:0] EX;
-output        Jump;
+output  [3:0] Jfamily;
 output        Beq;
 output        Bne;
 output        Shift;
@@ -42,12 +42,13 @@ reg       MemWrite;
 reg       RegDst;     
 reg       ALUSrc;
 reg [3:0] ALUControl;
-reg       Jump; 
+reg       J, JAL, JR, JALR; 
 reg       Shift;       
 
 assign WB = {RegWrite, MemtoReg};
 assign M  = {MemRead, MemWrite};
 assign EX = {RegDst, ALUSrc, ALUControl};
+assign Jfamily = {J, JAL, JR, JALR};
 
 always @(*) begin
 
@@ -60,7 +61,10 @@ always @(*) begin
     RegDst      = 1'b0;
     ALUControl  = ADD;
     ALUSrc      = 1'b1;
-    Jump        = 1'b0;
+    J           = 1'b0;
+    JAL         = 1'b0;
+    JR          = 1'b0;
+    JALR        = 1'b0;
     Shift       = 1'b0;
 
     // brute force solution
@@ -103,11 +107,11 @@ always @(*) begin
                 6'b101010: begin // SLT
                     ALUControl  = SLT;
                 end
-                6'b001000: begin // JA
-                    Jump        = 1'b1;
+                6'b001000: begin // JR
+                    JR          = 1'b1;
                 end
                 6'b001001: begin // JALR
-                    Jump        = 1'b1;
+                    JALR        = 1'b1;
                 end
                 default begin
 
@@ -150,12 +154,15 @@ always @(*) begin
             ALUControl = ADD;
         end
         6'b000010: begin // J
-            ALUControl = ADD;
-            Jump        = 1'b1;
+            RegWrite    = 1'b0;
+            ALUControl  = ADD;
+            J           = 1'b1;
         end
         6'b000011: begin // JAL
-            ALUControl = ADD;
-            Jump        = 1'b1;
+            RegWrite    = 1'b1;
+            RegDst      = 1'b1;
+            ALUControl  = ADD;
+            JAL         = 1'b1;
         end  
         default begin
             RegWrite    = 1'b1;
@@ -167,7 +174,10 @@ always @(*) begin
             RegDst      = 1'b0;
             ALUControl  = ADD;
             ALUSrc      = 1'b1;
-            Jump        = 1'b0;
+            J           = 1'b0;
+            JAL         = 1'b0;
+            JR          = 1'b0;
+            JALR        = 1'b0;
         end
     endcase
 end
