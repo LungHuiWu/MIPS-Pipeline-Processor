@@ -56,7 +56,8 @@ module HazardControl ( // stall or flush control
     ExMem_MemRead,
     IfId_Opcode,
     IfId_Funct4b,
-    IfId_Equal,
+    // IfId_Equal,
+    predWrong, // for branch prediction
     // output
     Ctrl_Flush,
     Pc_Write,
@@ -71,7 +72,8 @@ module HazardControl ( // stall or flush control
     input       ExMem_MemRead;
     input [5:0] IfId_Opcode;
     input [3:0] IfId_Funct4b;
-    input       IfId_Equal;
+    // input       IfId_Equal; 
+    input       predWrong;
     output reg  Ctrl_Flush, Pc_Write, IfId_Write, If_Flush;
 
     /* Parameters Part */
@@ -90,7 +92,8 @@ module HazardControl ( // stall or flush control
 
     /* Assignment Part */
     assign IfId_isBranchUseType = (IfId_Opcode == BEQ) || (IfId_Opcode == BNE) || (IfId_Opcode == R_type && (IfId_Funct4b == JR || IfId_Funct4b == JALR));
-    assign IfId_toBranch = (IfId_Opcode == BEQ && IfId_Equal) || (IfId_Opcode == BNE && !IfId_Equal) || (IfId_Opcode == R_type && (IfId_Funct4b == JR || IfId_Funct4b == JALR)) || (IfId_Opcode == J) || (IfId_Opcode == JAL);
+    // assign IfId_toBranch = (IfId_Opcode == BEQ && IfId_Equal) || (IfId_Opcode == BNE && !IfId_Equal) || (IfId_Opcode == R_type && (IfId_Funct4b == JR || IfId_Funct4b == JALR)) || (IfId_Opcode == J) || (IfId_Opcode == JAL); // origin
+    assign IfId_toBranch = ((IfId_Opcode == BEQ || IfId_Opcode == BNE) && predWrong) || (IfId_Opcode == R_type && (IfId_Funct4b == JR || IfId_Funct4b == JALR)); // for branch prediction
 
     /* Combinational Part */
     always @(*) begin

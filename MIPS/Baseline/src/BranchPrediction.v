@@ -72,7 +72,7 @@ module BranchPredict_2b (
     // output
     predTaken
 );
-     /* Inputs/Outputs Part */
+    /* Inputs/Outputs Part */
     input        clk, rst_n;
     input        stall;
     input  [5:0] If_Opcode;
@@ -138,7 +138,6 @@ module BranchPredict_2b (
             state_w = state_r;
         end
     end
-
     /* Sequential Part */
     always @(posedge clk) begin
         if (!rst_n) begin
@@ -149,6 +148,37 @@ module BranchPredict_2b (
         end
     end
 
+endmodule
+
+module PredictionCheck ( // place in ID stage to check whether previous branch prediction is wrong.
+    // input
+    IfId_PredTaken,
+    IfId_Equal,
+    IfId_Opcode, // Beq, Bne in ID
+    // output
+    Wrong
+);
+    /* Inputs/Outputs Part */
+    input       IfId_PredTaken;
+    input       IfId_Equal;
+    input [5:0] IfId_Opcode;
+    output reg  Wrong;
+
+    /* Parameters Part */
+    localparam BEQ = 6'b000100; // opcode
+    localparam BNE = 6'b000101;
+
+    /* Combinational Part */
+    always @(*) begin
+        if ((IfId_Opcode == BEQ && (IfId_Equal ^ IfId_PredTaken)) ||      // 1. BEQ result : Taken, pred : Not Taken 
+            (IfId_Opcode == BNE && (IfId_Equal ~^ IfId_PredTaken))) begin // 2. BEQ result : Not Taken, pred : Taken
+            Wrong = 1'b1;                                                 // 3. BNE result : Taken, pred : Not Taken
+        end                                                               // 4. BNE result : Not Taken, pred : Taken
+        else begin
+            Wrong = 1'b0;
+        end
+    end
+    
 endmodule
 
 
