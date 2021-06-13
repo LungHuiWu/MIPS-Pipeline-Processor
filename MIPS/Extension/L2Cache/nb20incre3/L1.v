@@ -7,6 +7,7 @@ module L1(
     proc_rdata,
     proc_wdata,
     proc_stall,
+    stall,
     reset,
     addr,
     read,
@@ -14,7 +15,7 @@ module L1(
     wdata,
     rdata,
     ready
-)
+);
 //==== Input/Output definition ====
     input           clk;
     // processor intrface
@@ -25,251 +26,371 @@ module L1(
     output          proc_stall;
     output  [31:0]  proc_rdata;
     // L2 cache interface
+    input           stall;
     input           ready;
     input   [127:0] rdata;
-    output  [31:0]  wdata;
+    output  [127:0] wdata;
     output          read, write;
     output          reset;
-    output  [27:0]  addr;
+    output  [29:0]  addr;
 
-//==== Parameter ====
+//==== Parameters ====
 
     parameter WORDLEN = 32;
-    parameter ENTRY = 4;
-    parameter BYTEOFFSET = 2;
-    parameter WORDPERDATA = 4;
-    parameter SET_NUM = 2;
-    // TAGLEN = 32 - 2(Byte Offset) - ln(4(Words per data)) - ln(4(Entry))
+    parameter BLOCKNUM = 4;
     parameter TAGLEN = 26;
 
-    parameter NONE  = 0;
-    parameter ONE   = 1;
-    parameter TWO   = 2;
+    parameter NONE = 2'd0;
+    parameter ONE = 2'd1;
+    parameter TWO = 2'd2;
 
-    parameter IDLE      = 0;
-    parameter COMPARE   = 1;
-    parameter WRITEBACK = 2;
-    parameter ALLOCATE  = 3;
+    parameter IDLE = 3'd0;
+    parameter COMPARE = 3'd1;
+    parameter ALLOCATE = 3'd2;
+    parameter WRITEBACK = 3'd3;
+    parameter READ = 3'd4;
+    parameter WRITE = 3'd5;
+    
+//==== wire/reg definition ====
+    
+    /// internal FF
+    // state
+    reg     [2:0]   state, state_nxt;
+    reg     [1:0]   set, set_nxt;
+    // cache 1
+    reg     [WORDLEN*4-1:0] cch1        [0:BLOCKNUM-1];
+    reg     [WORDLEN*4-1:0] cch1_nxt    [0:BLOCKNUM-1];
+    reg     [TAGLEN-1:0]    tag1        [0:BLOCKNUM-1];
+    reg     [TAGLEN-1:0]    tag1_nxt    [0:BLOCKNUM-1];
+    reg     valid1      [0:BLOCKNUM-1];
+    reg     valid1_nxt  [0:BLOCKNUM-1];
+    reg     dirty1      [0:BLOCKNUM-1];
+    reg     dirty1_nxt  [0:BLOCKNUM-1];
+    // cache 1
+    reg     [WORDLEN*4-1:0] cch2        [0:BLOCKNUM-1];
+    reg     [WORDLEN*4-1:0] cch2_nxt    [0:BLOCKNUM-1];
+    reg     [TAGLEN-1:0]    tag2        [0:BLOCKNUM-1];
+    reg     [TAGLEN-1:0]    tag2_nxt    [0:BLOCKNUM-1];
+    reg     valid2      [0:BLOCKNUM-1];
+    reg     valid2_nxt  [0:BLOCKNUM-1];
+    reg     dirty2      [0:BLOCKNUM-1];
+    reg     dirty2_nxt  [0:BLOCKNUM-1];
 
-//==== Wire & Reg ====
+    /// output FF
+    reg     proc_stall, proc_stall_nxt;
+    reg     [31:0]  proc_rdata, proc_rdata_nxt;
+    reg     read, read_nxt;
+    reg     write, write_nxt;
+    reg     [29:0]  addr, addr_nxt;
+    reg     [127:0] wdata, wdata_nxt;
+    assign  reset = proc_reset;
 
-    // Output
-        reg     proc_stall, proc_stall_nxt;
-        reg     [31:0]  proc_rdata, proc_rdata_nxt;
-        reg     [31:0]  wdata, wdata_nxt;
-        reg     read, read_nxt;
-        reg     write, write_nxt;
-        reg     [27:0]  addr, addr_nxt;
-        assign  reset = proc_reset;
-    // State
-        reg     [1:0]   set, set_nxt;
-        reg     [1:0]   state, state_nxt;
-    // Cache memory
-        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache       [0:ENTRY-1][0:SET_NUM-1];
-        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache_nxt   [0:ENTRY-1][0:SET_NUM-1];
-        reg     [TAGLEN-1 : 0]      tag         [0:ENTRY-1][0:SET_NUM-1];
-        reg     [TAGLEN-1 : 0]      tag_nxt     [0:ENTRY-1][0:SET_NUM-1];
-        reg     valid       [0:ENTRY-1][0:SET_NUM-1];
-        reg     valid_nxt   [0:ENTRY-1][0:SET_NUM-1];
-        reg     dirty       [0:ENTRY-1][0:SET_NUM-1];
-        reg     dirty_nxt   [0:ENTRY-1][0:SET_NUM-1];
-    // Partition of address
-        wire    [ENTRY-1:0]             entry_now;
-        wire    [TAGLEN-1:0]            tag_now;
-        wire    [BYTEOFFSET-1:0]        word_idx;
-    // Hit, Miss, Read, Write
-        wire    [SET_NUM-1:0]   hit_each;
-        wire    hit;
-    // Count
-        reg     [15:0]  m_cnt, m_cnt_nxt;
-        reg     [15:0]  t_cnt, t_cnt_nxt;
-    // integer
-        integer i, j;
+    wire    [1:0]   block_now;
+    wire    [25:0]  tag_now;
+    wire    [1:0]   word_idx;
+    wire    hit1;
+    wire    hit2;
+    wire    miss1_clean;
+    wire    miss1_dirty;
+    wire    miss2_clean;
+    wire    miss2_dirty;
+    wire    hit;
+    wire    miss;
 
-//==== Combinational ====
+    integer i;
 
-    assign  word_idx    =   proc_addr[1:0];
-    assign  entry_now   =   proc_addr[3:2];
-    assign  tag_now     =   proc_addr[29:4];
+//==== combinational circuit ====
 
-    // Hit, Miss, Read, Write
-    for(i=0;i<SET_NUM;i=i+1) begin
-        assign hit_each[i] = valid[entry_now][i] && (tag[entry_now][i] == tag_now);
+assign block_now = proc_addr[3:2];
+assign tag_now = proc_addr[29:4];
+assign word_idx = proc_addr[1:0];
+
+assign hit1 = (valid1[block_now]) && (tag1[block_now] == tag_now);
+assign hit2 = (valid2[block_now]) && (tag2[block_now] == tag_now);
+assign miss1_clean = !hit1 && !dirty1[block_now];
+assign miss2_clean = !hit2 && !dirty2[block_now];
+assign miss1_dirty = !hit1 && dirty1[block_now];
+assign miss2_dirty = !hit2 && dirty2[block_now];
+assign hit = hit1 || hit2;
+assign miss = ~hit;
+
+always @(*) begin // FSM
+    if (stall) begin
+        state_nxt = state;
+        set_nxt = set;
+        proc_stall_nxt = proc_stall;
     end
-    assign hit = |hit_each;
-
-    // FSM
-    always @(*) begin
-        state_nxt = IDLE;
+    else begin
+        state_nxt = state;
         set_nxt = NONE;
         proc_stall_nxt = 0;
-        t_cnt_nxt = t_cnt + 1;
-        m_cnt_nxt = m_cnt;
-        cache_nxt   = cache;
-        valid_nxt   = valid;
-        tag_nxt     = tag;
-        dirty_nxt   = dirty;
-        proc_rdata_nxt  = 0;
-        wdata_nxt       = 0;
-        read_nxt        = 0;
-        write_nxt       = 0;
-        addr_nxt        = 0;
         case (state)
             IDLE: begin
+                //$display("idle");
                 if (proc_read || proc_write) begin
                     state_nxt = COMPARE;
                     proc_stall_nxt = 1;
                     set_nxt = NONE;
                 end
+                else begin
+                    state_nxt = IDLE;
+                    proc_stall_nxt = 0;
+                    set_nxt = NONE;
+                end
             end 
             COMPARE: begin
-                if (hit) begin // hit
-                    proc_stall_nxt = 0;
-                    state_nxt = IDLE;
-                    set_nxt = NONE;
-                    // read
-                    if (proc_read) begin
-                        if (hit_each[0]) begin
-                            case (word_idx)
-                                0: proc_rdata_nxt = cache[entry_now][0][31:0];
-                                1: proc_rdata_nxt = cache[entry_now][0][63:32];
-                                2: proc_rdata_nxt = cache[entry_now][0][95:64];
-                                3: proc_rdata_nxt = cache[entry_now][0][127:96];
-                            endcase
-                        end
-                        else begin
-                            case (word_idx)
-                                0: proc_rdata_nxt = cache[entry_now][1][31:0];
-                                1: proc_rdata_nxt = cache[entry_now][1][63:32];
-                                2: proc_rdata_nxt = cache[entry_now][1][95:64];
-                                3: proc_rdata_nxt = cache[entry_now][1][127:96];
-                            endcase
-                        end
+                //$display("compare");
+                proc_stall_nxt = 1;
+                if (hit) begin
+                    if (proc_write && ~proc_read) begin
+                        state_nxt = WRITE;
                     end
-                    // write
-                    else if (proc_write) begin
-                        if (hit_each[0]) begin
-                            dirty_nxt[entry_now][0] = 0;
-                            case (word_idx)
-                                0: cache_nxt[entry_now][0][31:0] = proc_wdata;
-                                1: cache_nxt[entry_now][0][63:32] = proc_wdata;
-                                2: cache_nxt[entry_now][0][95:64] = proc_wdata;
-                                3: cache_nxt[entry_now][0][128:96] = proc_wdata;
-                            endcase
-                        end
-                        else begin
-                            dirty_nxt[entry_now][1] = 0;
-                            case (word_idx)
-                                0: cache_nxt[entry_now][1][31:0] = proc_wdata;
-                                1: cache_nxt[entry_now][1][63:32] = proc_wdata;
-                                2: cache_nxt[entry_now][1][95:64] = proc_wdata;
-                                3: cache_nxt[entry_now][1][128:96] = proc_wdata;
-                            endcase
-                        end
+                    else if (proc_read && ~proc_write) begin
+                        state_nxt = READ;
                     end
+                    else state_nxt = IDLE;
+
+                    if (hit1) begin
+                        set_nxt = ONE;
+                    end
+                    else if (hit2) begin
+                        set_nxt = TWO;
+                    end
+                    else set_nxt = NONE;
                 end
-                else begin // miss
-                    proc_stall_nxt = 1;
-                    m_cnt_nxt = m_cnt + 1;
-                    if (!dirty[entry_now][0]) begin
+                else begin
+                    if (miss1_clean) begin
                         state_nxt = ALLOCATE;
                         set_nxt = ONE;
                     end
-                    else if (!dirty[entry_now][1]) begin
+                    else if (miss2_clean) begin
                         state_nxt = ALLOCATE;
                         set_nxt = TWO;
                     end
-                    else begin
+                    else if (miss2_dirty) begin
                         state_nxt = WRITEBACK;
+                        set_nxt = TWO;
+                    end
+                    else begin
+                        state_nxt = ALLOCATE;
                         set_nxt = ONE;
                     end
                 end
             end
-            WRITEBACK: begin
-                proc_stall_nxt = 1;
-                set_nxt = set;
-                state_nxt = ready ? ALLOCATE : WRITEBACK;
-                if (!ready) begin
-                    write_nxt = 1;
-                    if (set == ONE) begin
-                        wdata_nxt = cache[entry_now][0];
-                        addr_nxt = {tag[entry_now][0], entry_now};
-                    end
-                    else if (set == TWO) begin
-                        wdata_nxt = cache[entry_now][1];
-                        addr_nxt = {tag[entry_now][1], entry_now};
-                    end
-                end
+            READ: begin
+                //$display("read");
+                state_nxt = IDLE;
+                proc_stall_nxt = 0;
+                set_nxt = NONE;
+            end
+            WRITE: begin
+                //$display("write");
+                state_nxt = IDLE;
+                proc_stall_nxt = 0;
+                set_nxt = NONE;
             end
             ALLOCATE: begin
+                //$display("allocate");
                 proc_stall_nxt = 1;
                 set_nxt = set;
-                state_nxt = ready ? COMPARE: ALLOCATE;
-                if (!ready) begin
-                    read_nxt = 1;
-                    addr_nxt = proc_addr[29:2];
+                if (ready) begin
+                    if(proc_read && ~proc_write) begin
+                        state_nxt = READ;
+                    end
+                    else if (proc_write && ~proc_read) begin
+                        state_nxt = WRITE;
+                    end
                 end
                 else begin
-                    if (set == ONE) begin
-                        tag_nxt[entry_now][0] = tag_now;
-                        valid_nxt[entry_now][0] = 1;
-                        dirty_nxt[entry_now][0] = 0;
-                        cache_nxt[entry_now][0] = rdata;
-                    end
-                    else if (set == TWO) begin
-                        tag_nxt[entry_now][1] = tag_now;
-                        valid_nxt[entry_now][1] = 1;
-                        dirty_nxt[entry_now][1] = 0;
-                        cache_nxt[entry_now][1] = rdata;
-                    end
+                    state_nxt = ALLOCATE;
                 end
+            end
+            WRITEBACK: begin
+                //$display("writeback");
+                proc_stall_nxt = 1;
+                set_nxt = set;
+                if (ready) begin
+                    state_nxt = ALLOCATE;
+                end
+                else begin
+                    state_nxt = WRITEBACK;
+                end
+            end
+            default: begin
+                state_nxt = IDLE;
+                proc_stall_nxt = 0;
+                set_nxt = NONE;
             end
         endcase
     end
+end
 
-//==== Sequetial ====
-
-    always @( posedge clk ) begin
-        if (proc_reset) begin
-            state   <= IDLE;
-            set     <= NONE;
-            for (i=0 ; i<ENTRY ; i=i+1) begin
-                for (j=0 ; j<SET_NUM ; j=j+1) begin
-                    cache[i][j]     <= 0;
-                    tag[i][j]       <= 0;
-                    dirty[i][j]     <= 0;
-                    valid[i][j]     <= 0;
-                end
-            end
-            proc_stall  <= 0;
-            proc_rdata  <= 0;
-            wdata       <= 0;
-            read        <= 0;
-            write       <= 0;
-            addr        <= 0;
-            m_cnt       <= 0;
-            t_cnt       <= 0;
-        end
-        else begin
-            state   <= state_nxt;
-            set     <= set_nxt;
-            for (i=0 ; i<ENTRY ; i=i+1) begin
-                for (j=0 ; j<SET_NUM ; j=j+1) begin
-                    cache[i][j]     <= cache_nxt[i][j];
-                    tag[i][j]       <= tag_nxt[i][j];
-                    dirty[i][j]     <= dirty_nxt[i][j];
-                    valid[i][j]     <= valid_nxt[i][j];
-                end
-            end
-            proc_stall  <= proc_stall_nxt;
-            proc_rdata  <= proc_rdata_nxt;
-            wdata       <= wdata_nxt;
-            read        <= read_nxt;
-            write       <= write_nxt;
-            addr        <= addr_nxt;
-            m_cnt       <= m_cnt_nxt;
-            t_cnt       <= t_cnt_nxt;
-        end
+always @(*) begin
+    // initial value
+    for(i=0;i<BLOCKNUM;i=i+1)begin
+        cch1_nxt[i] = cch1[i];
+        valid1_nxt[i] = valid1[i];
+        tag1_nxt[i] = tag1[i];
+        dirty1_nxt[i] = dirty1[i];
+        cch2_nxt[i] = cch2[i];
+        valid2_nxt[i] = valid2[i];
+        tag2_nxt[i] = tag2[i];
+        dirty2_nxt[i] = dirty2[i];
     end
+    // proc_stall_nxt = 0;
+    proc_rdata_nxt = 0;
+    read_nxt = 0;
+    write_nxt = 0;
+    addr_nxt = 0;
+    wdata_nxt = 0;
+    case (state)
+        READ: begin
+            if (set == ONE) begin
+                case (word_idx)
+                    0: proc_rdata_nxt = cch1[block_now][31:0];
+                    1: proc_rdata_nxt = cch1[block_now][63:32];
+                    2: proc_rdata_nxt = cch1[block_now][95:64];
+                    3: proc_rdata_nxt = cch1[block_now][127:96];
+                    default: proc_rdata_nxt = 0; 
+                endcase
+            end
+            else if (set == TWO) begin
+                case (word_idx)
+                    0: proc_rdata_nxt = cch2[block_now][31:0];
+                    1: proc_rdata_nxt = cch2[block_now][63:32];
+                    2: proc_rdata_nxt = cch2[block_now][95:64];
+                    3: proc_rdata_nxt = cch2[block_now][127:96];
+                    default: proc_rdata_nxt = 0; 
+                endcase
+            end
+        end 
+        WRITE: begin
+            if (set == ONE) begin
+                case (word_idx)
+                    0: cch1_nxt[block_now][31:0] = proc_wdata;
+                    1: cch1_nxt[block_now][63:32] = proc_wdata;
+                    2: cch1_nxt[block_now][95:64] = proc_wdata;
+                    3: cch1_nxt[block_now][127:96] = proc_wdata;
+                    default: cch1_nxt[block_now] = cch1[block_now];
+                endcase
+                tag1_nxt[block_now] = tag_now;
+                dirty1_nxt[block_now] = 1;
+            end
+            else if (set == TWO) begin
+                case (word_idx)
+                    0: cch2_nxt[block_now][31:0] = proc_wdata;
+                    1: cch2_nxt[block_now][63:32] = proc_wdata;
+                    2: cch2_nxt[block_now][95:64] = proc_wdata;
+                    3: cch2_nxt[block_now][127:96] = proc_wdata;
+                    default: cch2_nxt[block_now] = cch2[block_now];
+                endcase
+                tag2_nxt[block_now] = tag_now;
+                dirty2_nxt[block_now] = 1;
+            end
+        end
+        ALLOCATE: begin
+            if (ready)  begin
+                if (set == ONE) begin
+                    tag1_nxt[block_now] = tag_now;
+                    valid1_nxt[block_now] = 1;
+                    dirty1_nxt[block_now] = 0;
+                    cch1_nxt[block_now] = rdata;
+                end
+                else if (set == TWO) begin
+                    tag2_nxt[block_now] = tag_now;
+                    valid2_nxt[block_now] = 1;
+                    dirty2_nxt[block_now] = 0;
+                    cch2_nxt[block_now] = rdata;
+                end
+            end
+            else begin
+                read_nxt = 1;
+                write_nxt = 0;
+                wdata_nxt = 0;
+                addr_nxt = proc_addr[29:0];
+            end
+        end
+        WRITEBACK: begin
+            if (~ready) begin
+                write_nxt = 1;
+                if (set == ONE) begin
+                    wdata_nxt = cch1[block_now];
+                    addr_nxt = {tag1[block_now],block_now, word_idx};
+                end
+                else if (set == TWO) begin
+                    wdata_nxt = cch2[block_now];
+                    addr_nxt = {tag2[block_now],block_now, word_idx};
+                end
+            end
+            else begin
+                read_nxt = 1;
+                addr_nxt = proc_addr[29:0];
+            end
+        end
+        default: begin
+            // initial value
+            for(i=0;i<BLOCKNUM;i=i+1)
+                cch1_nxt[i] = cch1[i];
+                valid1_nxt[i] = valid1[i];
+                tag1_nxt[i] = tag1[i];
+                dirty1_nxt[i] = dirty1[i];
+                cch2_nxt[i] = cch2[i];
+                valid2_nxt[i] = valid2[i];
+                tag2_nxt[i] = tag2[i];
+                dirty2_nxt[i] = dirty2[i];
+            // proc_stall_nxt = 0;
+            proc_rdata_nxt = 0;
+            read_nxt = 0;
+            write_nxt = 0;
+            addr_nxt = 0;
+            wdata_nxt = 0;
+        end
+    endcase
+end
+
+//==== sequential circuit =================================
+always@( posedge clk ) begin
+    if( proc_reset ) begin
+        state <= IDLE;
+        set <= NONE;
+        for (i = 0; i<BLOCKNUM; i=i+1) begin
+            cch1[i]      <= 0;
+            tag1[i]      <= 0;
+            valid1[i]    <= 0;
+            dirty1[i]    <= 0;
+            cch2[i]      <= 0;
+            tag2[i]      <= 0;
+            valid2[i]    <= 0;
+            dirty2[i]    <= 0;
+        end
+        proc_stall      <= 0;
+        proc_rdata      <= 0;
+        read        <= 0;
+        write       <= 0;
+        addr        <= 0;
+        wdata       <= 0;
+    end
+    else begin
+        state <= state_nxt;
+        set <= set_nxt;
+        for (i = 0; i<BLOCKNUM; i=i+1) begin
+            cch1[i]      <= cch1_nxt[i];
+            tag1[i]      <= tag1_nxt[i];
+            valid1[i]    <= valid1_nxt[i];
+            dirty1[i]    <= dirty1_nxt[i];
+            cch2[i]      <= cch2_nxt[i];
+            tag2[i]      <= tag2_nxt[i];
+            valid2[i]    <= valid2_nxt[i];
+            dirty2[i]    <= dirty2_nxt[i];
+        end
+        proc_stall      <= proc_stall_nxt;
+        proc_rdata      <= proc_rdata_nxt;
+        read        <= read_nxt;
+        write       <= write_nxt;
+        addr        <= addr_nxt;
+        wdata       <= wdata_nxt;
+    end
+end
 
 endmodule
+
