@@ -1,52 +1,153 @@
-/* UNFINISH */
-
+/* FINISH PART */
+// 1-bit Branch Predictor
+// 2-bit Branch Predictor
 
 /***** Dynamic Branch Prediction *****/
 // experiment : 1-bit predictor, 2-bit predictor
 // p.s. module place in IF cycle
 
-// Dynamic prediction 的 branch history table，以 branch instruction 的 address (取最後 n 個 bit) 做索引，並儲存 branch 的結果。如果猜錯的話就做之前一樣的 flush 並修改表。
-// 跳出 loop 時會猜繼續，第一次進入 loop 會猜跳出 -> 導致錯誤率大幅提高
-// -> 2bit 的 predictor, 連續兩個 taken/not taken 才會改變狀態
-
-// 但就算猜對，還是要算出 target address，所以在 branch taken 時會有一個 cycle 的 penalty。解決的方法是新增 buffer 存放 branch target address。
-
-/* Use one LSB of the PC address as two states */
 module BranchPredict_1b (  
-
-
-// If the prediction is wrong, flush the pipeline and also flip prediction
-// the best option is to use only some of the least significant bits of the PC address.
-
-
     // input
     clk,
     rst_n,
-    lastTaken,
+    stall,
+    If_Opcode, // Beq, Bne in IF
+    predWrong, // previous prediction is wrong
     // output
-    predictTaken,
+    predTaken
 );
     /* Inputs/Outputs Part */
+    input        clk, rst_n;
+    input        stall;
+    input  [5:0] If_Opcode;
+    input        predWrong;
+    output       predTaken;
+
     /* Parameters Part */
-    localparam PredTaken    = 1'b0; // taken => jump
-    localparam PredNotTaken = 1'b1; // not taken => don't jump
+    localparam S_NT = 1'b0; // not taken => don't jump
+    localparam S_T  = 1'b1; // taken => jump
+    localparam BEQ = 6'b000100; // opcode
+    localparam BNE = 6'b000101;
 
     /* Wires/Regs Part */
     reg state_r, state_w;
+
     /* Assignment Part */
+    assign predTaken = state_r;
+
     /* Combinational Part */
+    always @(*) begin
+        if ((If_Opcode == BEQ || If_Opcode == BNE) && !stall) begin
+            if (predWrong) begin
+                state_w = ~state_r;
+            end
+            else begin
+                state_w = state_r;
+            end
+        end
+        else begin
+            state_w = state_r;
+        end
+    end
+
     /* Sequential Part */
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            state_r <= S_NT;
+        end
+        else begin
+            state_r <= state_w;
+        end
+    end
 
 endmodule
 
-/* Use two LSBs of the PC address as four states */
 module BranchPredict_2b (
-
-
-// Two bits are maintained in the prediction buffer and there are four different states.
-// especially useful when multiple branches share the same counter
-
+    // input
+    clk,
+    rst_n,
+    stall,
+    If_Opcode, // Beq, Bne in IF
+    predWrong,
+    // output
+    predTaken
 );
+     /* Inputs/Outputs Part */
+    input        clk, rst_n;
+    input        stall;
+    input  [5:0] If_Opcode;
+    input        predWrong;
+    output       predTaken;
+
+    /* Parameters Part */
+    localparam S_SNT = 2'd0; // strong not taken
+    localparam S_WNT = 2'd1; // weak not taken
+    localparam S_ST  = 2'd2; // strong taken
+    localparam S_WT  = 2'd3; // weak taken
+    localparam BEQ = 6'b000100; // opcode
+    localparam BNE = 6'b000101;
+
+    /* Wires/Regs Part */
+    reg [1:0] state_r, state_w;
+
+    /* Assignment Part */
+    assign predTaken = state_r[1];
+
+    /* Combinational Part */
+    always @(*) begin
+        if ((If_Opcode == BEQ || If_Opcode == BNE) && !stall) begin
+            case(state_r)
+                S_SNT: begin
+                    if (predWrong) begin
+                        state_w = S_WNT;
+                    end
+                    else begin
+                        state_w = S_SNT;
+                    end
+                end
+                S_WNT: begin
+                    if (predWrong) begin
+                        state_w = S_ST;
+                    end
+                    else begin
+                        state_w = S_SNT;
+                    end
+                end
+                S_ST: begin
+                    if (predWrong) begin
+                        state_w = S_WT;
+                    end
+                    else begin
+                        state_w = S_ST;
+                    end
+                end
+                S_WT: begin
+                    if (predWrong) begin
+                        state_w = S_SNT;
+                    end
+                    else begin
+                        state_w = S_ST;
+                    end
+                end
+                default: begin
+                    state_w = state_r;
+                end
+            endcase
+        end
+        else begin
+            state_w = state_r;
+        end
+    end
+
+    /* Sequential Part */
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            state_r <= S_SNT;
+        end
+        else begin
+            state_r <= state_w;
+        end
+    end
 
 endmodule
 
@@ -60,3 +161,4 @@ endmodule
 // 6. Return Address Predictors
 // 7.  Integrated Instruction Fetch Units
 // ref: https://www.cs.umd.edu/~meesh/411/CA-online/chapter/dynamic-branch-prediction/index.html
+// 8 Use n bits LSB of the PC address as 1. 2.'s states

@@ -149,21 +149,24 @@ output  [31:0] 	ICACHE_wdata;
 input         	ICACHE_stall;
 input  	[31:0] 	ICACHE_rdata;
 //----------D Cache Interface-------
-output  DCACHE_ren, DCACHE_wen;
+output reg  DCACHE_ren, DCACHE_wen;
 output  [29:0] 	DCACHE_addr;
 output  [31:0] 	DCACHE_wdata;
 input         	DCACHE_stall;
 input  	[31:0] 	DCACHE_rdata;
+
 //========= Pipeline Reg Declaration =========
 //--------- First Half -----------------------
+reg 	[1:0] 	DCACHE_state, DCACHE_state_nxt;
+reg 	[31:0]	PC, PC_nxt;
 reg 	[31:0]	S1_PC, S1_PC_nxt;
 reg 	[31:0]	S1_inst, S1_inst_nxt;
-// WB = RegWrite + MemToReg
+
+reg 	[31:0]	S2_PC, S2_PC_nxt;
 reg 	[1:0] 	S2_WB, S2_WB_nxt;
-// M = Branch + MemRead + MemWrite
 reg		[1:0]	S2_M, S2_M_nxt;
-// EX = RegDst + ALUSrc + ALUControl
-reg 	[3:0]	S2_EX, S2_EX_nxt;
+reg 	[5:0]	S2_EX, S2_EX_nxt;
+reg 	[3:0]	S2_Jfamily, S2_Jfamily_nxt;
 reg 	[31:0]	S2_rdata1, S2_rdata1_nxt;
 reg 	[31:0]	S2_rdata2, S2_rdata2_nxt;
 reg 	[31:0]	S2_I1, S2_I1_nxt;
@@ -171,18 +174,23 @@ reg     [4:0]   S2_Rs, S2_Rs_nxt;
 reg 	[4:0]	S2_I2, S2_I2_nxt;
 reg 	[4:0]	S2_I3, S2_I3_nxt;
 //---------- Second Half ---------------------
+reg 	[31:0]	S3_PC, S3_PC_nxt;
 reg 	[1:0]	S3_WB, S3_WB_nxt;
 reg 	[1:0]	S3_M, S3_M_nxt;
+reg 	[3:0]	S3_Jfamily, S3_Jfamily_nxt;
 reg 	[31:0]	S3_ALUResult, S3_ALUResult_nxt;
 reg 	[31:0]	S3_rdata, S3_rdata_nxt;
 reg 	[4:0]	S3_I, S3_I_nxt;
-reg 	[1:0]   S4_WB, S4_WB_nxt;                       // need [1:0] ?
+
+reg 	[31:0]	S4_PC, S4_PC_nxt;
+reg 	[1:0]   S4_WB, S4_WB_nxt; 
+reg 	[3:0]	S4_Jfamily, S4_Jfamily_nxt;                      // need [1:0] ?
 reg 	[31:0]	S4_rdata, S4_rdata_nxt;
 reg 	[31:0]	S4_ALUResult, S4_ALUResult_nxt;
 reg 	[4:0]	S4_I, S4_I_nxt;
 
 //========= Wire ============================
-wire 	        PCSrc;
+wire 	[1:0]   PCSrc;	
 wire 	[31:0]	PC4_A_SE_SL2;	// PC+4 + Address with Sign Extend Shift Left 2
 wire 			Equal;			// ReadData1 and ReadData2 are equal					
 
@@ -195,31 +203,38 @@ wire 	[31:0]	WriteData;
 wire 	[31:0]	ReadData1;
 wire 	[31:0]	ReadData2;
 //========= Control =========================
+wire 	[3:0]   Jfamily; 
 wire 	[1:0]   WB; 
 wire 	[1:0]   M;
 wire 	[5:0]   EX;
 wire            Beq;
 wire            Bne;
-wire 	        Jump;
+wire 			Shift;			
 //========= Hazard Control ====================
-wire CtrlMux;
-wire Pc_Write;
-wire IfId_Write;
-wire If_Flush;
-wire [10:0] CtrlMuxOut;
+wire 			CtrlMux;
+wire 			Pc_Write;
+wire 			IfId_Write;
+wire 			If_Flush;
+wire 	[13:0] 	CtrlMuxOut;
+//========= PC ====================
+wire	[31:0]  PCadd4; 
 //========= ALU =============================
 wire 	[31:0]	Alu_data1;
 wire 	[31:0]	Alu_data2;
 wire	[31:0]	ALUResult;
 //========= Branch Forwarding Unit=============
-wire [31:0] Branch_data1;
-wire [31:0] Branch_data2;
+wire 	[31:0] 	Branch_data1;
+wire 	[31:0] 	Branch_data2;
 //========= EX Part============================
 wire    [4:0]   RegDstOut;
 wire    [31:0]  ReadData2orImm;
-//========= Instruction Cache ============================
-assign ICACHE_ren = 1'b1;
-assign ICACHE_wen = 1'b0;
+
+//=============================================
+assign 	ICACHE_ren = 1'b1;
+assign 	ICACHE_wen = 1'b0;
+assign	ICACHE_addr = PC[31:2];
+assign 	DCACHE_addr = S3_ALUResult[31:2];
+assign	DCACHE_wdata = S3_rdata;
 //========= Registers =========================
 Registers register(
     .clk(clk), 
@@ -234,7 +249,7 @@ Registers register(
 );
 
 //========= Hazard Control ====================
-assign CtrlMuxOut = (CtrlMux) ? {WB, M, EX} : 11'b0;
+assign CtrlMuxOut = (CtrlMux) ? 14'b0 : {Jfamily ,WB, M, EX};
 HazardControl HC(
 	.IdExRt(S2_I2),
 	.IdExRd(RegDstOut),
@@ -263,7 +278,8 @@ Control control(
     .EX(EX),
     .Beq(Beq),
     .Bne(Bne),
-    .Jump(Jump)
+    .Jfamily(Jfamily),
+	.Shift(Shift)
 );
 //========= ALU =============================
 ALU alu(
@@ -305,21 +321,85 @@ ForwardBranchUnit FWBU(
     .Branch_data2(Branch_data2)
 );
 //========= First Part ======================
+// assign	DCACHE_wen = S3_M[0] && !DCACHE_en;
+// assign	DCACHE_ren = S3_M[1] && !DCACHE_en;
+always @(*) begin
+	DCACHE_state_nxt = DCACHE_state;
+	case (DCACHE_state) 
+		2'b00: begin
+			DCACHE_wen = S3_M[0];
+			DCACHE_ren = S3_M[1];
+			if (S3_M[0]||S3_M[1]) begin
+				DCACHE_state_nxt = 2'b01;
+			end
+			else begin
+				DCACHE_state_nxt = 2'b00;
+			end
+			
+		end
+		2'b01: begin
+			DCACHE_wen = S3_M[0] && DCACHE_stall;
+			DCACHE_ren = S3_M[1] && DCACHE_stall;
+			if (!DCACHE_stall) begin
+				DCACHE_state_nxt = 2'b10;
+			end
+			else begin
+				DCACHE_state_nxt = 2'b01;
+			end
+		end
+		2'b10: begin
+			DCACHE_wen = 0;
+			DCACHE_ren = 0;
+			if (PC != PC_nxt) begin
+				DCACHE_state_nxt = 2'b00;
+			end
+			else begin
+				DCACHE_state_nxt = 2'b10;
+			end
+		end
+	endcase
+end
+// PC
+assign PCadd4 = PC + 4;
+always @(*) begin
+	PC_nxt = PC;
+	if(!ICACHE_stall && !DCACHE_stall) begin
+		if (!Pc_Write) begin
+			PC_nxt = PC;         // stall
+		end
+		else begin
+			case (PCSrc)
+				2'b00: begin
+					PC_nxt = PCadd4;	// normal
+				end
+				2'b01: begin
+					PC_nxt = PC4_A_SE_SL2 + 4;	// branch
+				end
+				2'b10: begin
+					PC_nxt = {S1_PC[31:28], S1_inst[25:0], 2'b00}; // Jump 
+				end
+				2'b11: begin
+					PC_nxt = Branch_data1;	// Jump Register
+				end
+				default begin
+					
+				end
+			endcase
+		end
+	end
+end
 // IF
 
 always @(*) begin
     S1_PC_nxt = S1_PC;
-    S1_inst_nxt = S1_inst;
     if(!ICACHE_stall && !DCACHE_stall) begin
-		if (!Pc_Write) begin
-			S1_PC_nxt = S1_PC;          // stall
-		end
-        else if (PCSrc) begin
-            S1_PC_nxt = PC4_A_SE_SL2 + 4;         // for branch
-        end
-        else begin
-            S1_PC_nxt = S1_PC + 4;      // normal
-        end
+        S1_PC_nxt = PCadd4;  
+	end
+end
+
+always @(*) begin
+	S1_inst_nxt = S1_inst;
+	if(!ICACHE_stall && !DCACHE_stall) begin
 		if (!IfId_Write) begin
         	S1_inst_nxt = S1_inst;
 		end
@@ -334,34 +414,46 @@ end
 
 // ID
 assign	RegWrite = S4_WB[1];
-assign	WriteData = S4_WB[0] ? S4_rdata : S4_ALUResult;
+assign	WriteData = (S4_Jfamily[2] || S4_Jfamily[0]) ? S4_PC : S4_WB[0] ? S4_rdata : S4_ALUResult;
 assign	WriteReg = S4_I;
 assign  ReadReg1 = S1_inst[25:21];
 assign  ReadReg2 = S1_inst[20:16];
 assign 	PC4_A_SE_SL2 = S1_PC + {{16{S1_inst[15]}},S1_inst[15:0]}<<2;
 assign  Equal = (Branch_data1 == Branch_data2);	
-assign	PCSrc = (Beq && Equal) || (Bne && !Equal);
+assign	PCSrc = (Beq && Equal) || (Bne && !Equal) ? 2'b01 :
+				(Jfamily[3]||Jfamily[2]) ? 2'b10 : (Jfamily[1]||Jfamily[0]) ? 2'b11 : 2'b00;
 
 always @(*) begin
+	S2_PC_nxt = S2_PC;
     S2_WB_nxt = S2_WB;
     S2_M_nxt = S2_M;
     S2_EX_nxt = S2_EX;
+	S2_Jfamily_nxt = S2_Jfamily;
     S2_rdata1_nxt = S2_rdata1;
     S2_rdata2_nxt = S2_rdata2;
     S2_I1_nxt = S2_I1;
     S2_I2_nxt = S2_I2;
     S2_I3_nxt = S2_I3;
+	S2_Rs_nxt = S2_Rs;
 
     if(!ICACHE_stall && !DCACHE_stall) begin
-        S2_WB_nxt = CtrlMuxOut[10:9];       // from Control WB     
-        S2_M_nxt  = CtrlMuxOut[8:6];        // from Control M      
+		S2_PC_nxt = S1_PC;
+		S2_Jfamily_nxt = CtrlMuxOut[13:10];
+        S2_WB_nxt = CtrlMuxOut[9:8];       // from Control WB     
+        S2_M_nxt  = CtrlMuxOut[7:6];        // from Control M      
         S2_EX_nxt = CtrlMuxOut[5:0];        // from Control EX    
-        S2_rdata1_nxt = ReadData1;    // from Registers ReadData1
+        S2_rdata1_nxt = Shift ? S1_inst[10:6] : ReadData1;    // from Registers ReadData1
         S2_rdata2_nxt = ReadData2;    // from Registers ReadData2
-		S2_Rs_nxt = S1_inst[25:21];
         S2_I1_nxt = {{16{S1_inst[15]}},S1_inst[15:0]}; // extended immediate
-        S2_I2_nxt = S1_inst[20:16];
-        S2_I3_nxt = S1_inst[15:11];
+		S2_I2_nxt = S1_inst[20:16];
+		S2_Rs_nxt = S1_inst[25:21];
+		if (Jfamily[2]) begin
+			S2_I3_nxt = 5'b11111;
+		end
+		else begin
+			S2_I3_nxt = S1_inst[15:11];
+		end
+        
     end
 end
 
@@ -370,14 +462,18 @@ end
 assign	ReadData2orImm = S2_EX[4] ? S2_I1 : S2_rdata2;
 assign  RegDstOut = (S2_EX[5]) ? S2_I3 : S2_I2;
 always @(*) begin
+	S3_PC_nxt = S3_PC;
 	S3_WB_nxt = S3_WB;
 	S3_M_nxt = S3_M;
+	S3_Jfamily_nxt = S3_Jfamily;
 	S3_ALUResult_nxt = S3_ALUResult;
 	S3_rdata_nxt = S3_rdata;
 	S3_I_nxt = S3_I;
 	if(!ICACHE_stall && !DCACHE_stall) begin
+		S3_PC_nxt = S2_PC;
 		S3_WB_nxt = S2_WB;
 		S3_M_nxt = S2_M;
+		S3_Jfamily_nxt = S2_Jfamily;
 		S3_ALUResult_nxt = ALUResult;
 		S3_rdata_nxt = S2_rdata2;
 		S3_I_nxt = RegDstOut;
@@ -385,18 +481,19 @@ always @(*) begin
 end
 
 // MEM
-assign 	DCACHE_addr = S3_ALUResult;
-assign	DCACHE_wdata = S3_rdata;
-assign	DCACHE_wen = S3_M[0];
-assign	DCACHE_ren = S3_M[1];
+
 always @(*) begin
+	S4_PC_nxt = S4_PC;
 	S4_rdata_nxt = S4_rdata;
 	S4_WB_nxt = S4_WB;
+	S4_Jfamily_nxt = S4_Jfamily;
 	S4_ALUResult_nxt = S4_ALUResult;
 	S4_I_nxt = S4_I;
 	if (!ICACHE_stall && !DCACHE_stall) begin
+		S4_PC_nxt = S3_PC;
 		S4_rdata_nxt = DCACHE_rdata;
 		S4_WB_nxt = S3_WB;
+		S4_Jfamily_nxt = S3_Jfamily;
 		S4_ALUResult_nxt = S3_ALUResult;
 		S4_I_nxt = S3_I;
 	end
@@ -404,45 +501,61 @@ end
 //======== Sequetial Part =======================
 always @(posedge clk or negedge rst_n) begin
 	if(!rst_n)begin
+		DCACHE_state	<= 0;
+		PC 				<= 0;
 		S1_PC 			<= 0;
 		S1_inst 		<= 0;
+		S2_PC 			<= 0;
 		S2_WB 			<= 0;
 		S2_M 			<= 0;
 		S2_EX 			<= 0;
+		S2_Jfamily 		<= 0;
 		S2_I1 			<= 0;
 		S2_Rs		 	<= 0;
 		S2_I2 			<= 0;
 		S2_I3 			<= 0;
 		S2_rdata1 		<= 0;
 		S2_rdata2 		<= 0;
+		S3_PC 			<= 0;
 		S3_WB 			<= 0;
 		S3_M 			<= 0;
+		S3_Jfamily 		<= 0;
 		S3_ALUResult 	<= 0;
 		S3_rdata 		<= 0;
 		S3_I 			<= 0;
+		S4_PC 			<= 0;
 		S4_WB 			<= 0;
+		S4_Jfamily 		<= 0;
 		S4_rdata 		<= 0;
 		S4_ALUResult 	<= 0;
 		S4_I 			<= 0;
 	end
 	else begin
+		DCACHE_state	<= DCACHE_state_nxt;
+		PC 				<= PC_nxt;
 		S1_PC 			<= S1_PC_nxt;
 		S1_inst 		<= S1_inst_nxt;
+		S2_PC 			<= S2_PC_nxt;
 		S2_WB 			<= S2_WB_nxt;
 		S2_M 			<= S2_M_nxt;
 		S2_EX 			<= S2_EX_nxt;
+		S2_Jfamily 		<= S2_Jfamily_nxt;
 		S2_I1 			<= S2_I1_nxt;
 		S2_Rs		 	<= S2_Rs_nxt;
 		S2_I2 			<= S2_I2_nxt;
 		S2_I3 			<= S2_I3_nxt;
 		S2_rdata1 		<= S2_rdata1_nxt;
 		S2_rdata2 		<= S2_rdata2_nxt;
+		S3_PC 			<= S3_PC_nxt;
 		S3_WB 			<= S3_WB_nxt;
 		S3_M 			<= S3_M_nxt;
+		S3_Jfamily 		<= S3_Jfamily_nxt;
 		S3_ALUResult 	<= S3_ALUResult_nxt;
 		S3_rdata 		<= S3_rdata_nxt;
 		S3_I 			<= S3_I_nxt;
+		S4_PC 			<= S4_PC_nxt;
 		S4_WB 			<= S4_WB_nxt;
+		S4_Jfamily 		<= S4_Jfamily_nxt;
 		S4_rdata 		<= S4_rdata_nxt;
 		S4_ALUResult 	<= S4_ALUResult_nxt;
 		S4_I 			<= S4_I_nxt;
