@@ -1,5 +1,5 @@
-`include "L1.v"
-`include "L2.v"
+`include "L1_2way.v"
+`include "L2_8way.v"
 module L2_Cache(
     clk,
     proc_reset,

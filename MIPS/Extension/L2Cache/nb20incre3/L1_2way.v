@@ -8,7 +8,6 @@ module L1(
     proc_wdata,
     proc_stall,
     stall,
-    reset,
     addr,
     read,
     write,
@@ -31,7 +30,6 @@ module L1(
     input   [127:0] rdata;
     output  [127:0] wdata;
     output          read, write;
-    output          reset;
     output  [29:0]  addr;
 
 //==== Parameters ====
@@ -44,18 +42,16 @@ module L1(
     parameter ONE = 2'd1;
     parameter TWO = 2'd2;
 
-    parameter IDLE = 3'd0;
-    parameter COMPARE = 3'd1;
-    parameter ALLOCATE = 3'd2;
-    parameter WRITEBACK = 3'd3;
-    parameter READ = 3'd4;
-    parameter WRITE = 3'd5;
+    parameter IDLE = 2'd0;
+    parameter COMPARE = 2'd1;
+    parameter ALLOCATE = 2'd2;
+    parameter WRITEBACK = 2'd3;
     
 //==== wire/reg definition ====
     
     /// internal FF
     // state
-    reg     [2:0]   state, state_nxt;
+    reg     [1:0]   state, state_nxt;
     reg     [1:0]   set, set_nxt;
     // cache 1
     reg     [WORDLEN*4-1:0] cch1        [0:BLOCKNUM-1];
@@ -83,7 +79,10 @@ module L1(
     reg     write, write_nxt;
     reg     [29:0]  addr, addr_nxt;
     reg     [127:0] wdata, wdata_nxt;
-    assign  reset = proc_reset;
+
+    // miss & hit
+    reg     [15:0]  m_cnt, m_cnt_nxt;
+    reg     [15:0]  t_cnt, t_cnt_nxt;
 
     wire    [1:0]   block_now;
     wire    [25:0]  tag_now;
@@ -119,11 +118,15 @@ always @(*) begin // FSM
         state_nxt = state;
         set_nxt = set;
         proc_stall_nxt = proc_stall;
+        t_cnt_nxt = t_cnt;
+        m_cnt_nxt = m_cnt;
     end
     else begin
         state_nxt = state;
         set_nxt = NONE;
         proc_stall_nxt = 0;
+        t_cnt_nxt = t_cnt;
+        m_cnt_nxt = m_cnt;
         case (state)
             IDLE: begin
                 //$display("idle");
@@ -131,6 +134,7 @@ always @(*) begin // FSM
                     state_nxt = COMPARE;
                     proc_stall_nxt = 1;
                     set_nxt = NONE;
+                    t_cnt_nxt = t_cnt + 1;
                 end
                 else begin
                     state_nxt = IDLE;
@@ -140,66 +144,47 @@ always @(*) begin // FSM
             end 
             COMPARE: begin
                 //$display("compare");
-                proc_stall_nxt = 1;
                 if (hit) begin
-                    if (proc_write && ~proc_read) begin
-                        state_nxt = WRITE;
-                    end
-                    else if (proc_read && ~proc_write) begin
-                        state_nxt = READ;
-                    end
-                    else state_nxt = IDLE;
-
-                    if (hit1) begin
-                        set_nxt = ONE;
-                    end
-                    else if (hit2) begin
-                        set_nxt = TWO;
-                    end
-                    else set_nxt = NONE;
+                    state_nxt = IDLE;
+                    set_nxt = NONE;
+                    proc_stall_nxt = 0;
                 end
                 else begin
+                    proc_stall_nxt = 1;
+                    m_cnt_nxt = m_cnt + 1;
+                    $display("L1(2way) : Miss/Total = %d/%d", m_cnt_nxt, t_cnt_nxt);
                     if (miss1_clean) begin
                         state_nxt = ALLOCATE;
+                        read_nxt = 1;
+                        addr_nxt = proc_addr[29:0];
                         set_nxt = ONE;
                     end
                     else if (miss2_clean) begin
                         state_nxt = ALLOCATE;
+                        read_nxt = 1;
+                        addr_nxt = proc_addr[29:0];
                         set_nxt = TWO;
                     end
                     else if (miss2_dirty) begin
                         state_nxt = WRITEBACK;
+                        write_nxt = 1;
+                        addr_nxt = {tag2[block_now],block_now, word_idx};
                         set_nxt = TWO;
                     end
                     else begin
                         state_nxt = ALLOCATE;
+                        read_nxt = 1;
+                        addr_nxt = proc_addr[29:0];
                         set_nxt = ONE;
                     end
                 end
-            end
-            READ: begin
-                //$display("read");
-                state_nxt = IDLE;
-                proc_stall_nxt = 0;
-                set_nxt = NONE;
-            end
-            WRITE: begin
-                //$display("write");
-                state_nxt = IDLE;
-                proc_stall_nxt = 0;
-                set_nxt = NONE;
             end
             ALLOCATE: begin
                 //$display("allocate");
                 proc_stall_nxt = 1;
                 set_nxt = set;
                 if (ready) begin
-                    if(proc_read && ~proc_write) begin
-                        state_nxt = READ;
-                    end
-                    else if (proc_write && ~proc_read) begin
-                        state_nxt = WRITE;
-                    end
+                    state_nxt = COMPARE;
                 end
                 else begin
                     state_nxt = ALLOCATE;
@@ -244,48 +229,52 @@ always @(*) begin
     addr_nxt = 0;
     wdata_nxt = 0;
     case (state)
-        READ: begin
-            if (set == ONE) begin
-                case (word_idx)
-                    0: proc_rdata_nxt = cch1[block_now][31:0];
-                    1: proc_rdata_nxt = cch1[block_now][63:32];
-                    2: proc_rdata_nxt = cch1[block_now][95:64];
-                    3: proc_rdata_nxt = cch1[block_now][127:96];
-                    default: proc_rdata_nxt = 0; 
-                endcase
-            end
-            else if (set == TWO) begin
-                case (word_idx)
-                    0: proc_rdata_nxt = cch2[block_now][31:0];
-                    1: proc_rdata_nxt = cch2[block_now][63:32];
-                    2: proc_rdata_nxt = cch2[block_now][95:64];
-                    3: proc_rdata_nxt = cch2[block_now][127:96];
-                    default: proc_rdata_nxt = 0; 
-                endcase
-            end
-        end 
-        WRITE: begin
-            if (set == ONE) begin
-                case (word_idx)
-                    0: cch1_nxt[block_now][31:0] = proc_wdata;
-                    1: cch1_nxt[block_now][63:32] = proc_wdata;
-                    2: cch1_nxt[block_now][95:64] = proc_wdata;
-                    3: cch1_nxt[block_now][127:96] = proc_wdata;
-                    default: cch1_nxt[block_now] = cch1[block_now];
-                endcase
-                tag1_nxt[block_now] = tag_now;
-                dirty1_nxt[block_now] = 1;
-            end
-            else if (set == TWO) begin
-                case (word_idx)
-                    0: cch2_nxt[block_now][31:0] = proc_wdata;
-                    1: cch2_nxt[block_now][63:32] = proc_wdata;
-                    2: cch2_nxt[block_now][95:64] = proc_wdata;
-                    3: cch2_nxt[block_now][127:96] = proc_wdata;
-                    default: cch2_nxt[block_now] = cch2[block_now];
-                endcase
-                tag2_nxt[block_now] = tag_now;
-                dirty2_nxt[block_now] = 1;
+        COMPARE: begin
+            if(hit) begin
+                if (proc_write && ~proc_read) begin
+                    if (hit1) begin
+                        case (word_idx)
+                            0: cch1_nxt[block_now][31:0] = proc_wdata;
+                            1: cch1_nxt[block_now][63:32] = proc_wdata;
+                            2: cch1_nxt[block_now][95:64] = proc_wdata;
+                            3: cch1_nxt[block_now][127:96] = proc_wdata;
+                            default: cch1_nxt[block_now] = cch1[block_now];
+                        endcase
+                        tag1_nxt[block_now] = tag_now;
+                        dirty1_nxt[block_now] = 1;
+                    end
+                    else if (hit2) begin
+                        case (word_idx)
+                            0: cch2_nxt[block_now][31:0] = proc_wdata;
+                            1: cch2_nxt[block_now][63:32] = proc_wdata;
+                            2: cch2_nxt[block_now][95:64] = proc_wdata;
+                            3: cch2_nxt[block_now][127:96] = proc_wdata;
+                            default: cch2_nxt[block_now] = cch2[block_now];
+                        endcase
+                        tag2_nxt[block_now] = tag_now;
+                        dirty2_nxt[block_now] = 1;
+                    end
+                end
+                else if (proc_read && ~proc_write) begin
+                    if (hit1) begin
+                        case (word_idx)
+                            0: proc_rdata_nxt = cch1[block_now][31:0];
+                            1: proc_rdata_nxt = cch1[block_now][63:32];
+                            2: proc_rdata_nxt = cch1[block_now][95:64];
+                            3: proc_rdata_nxt = cch1[block_now][127:96];
+                            default: proc_rdata_nxt = 0; 
+                        endcase
+                    end
+                    else if (hit2) begin
+                        case (word_idx)
+                            0: proc_rdata_nxt = cch2[block_now][31:0];
+                            1: proc_rdata_nxt = cch2[block_now][63:32];
+                            2: proc_rdata_nxt = cch2[block_now][95:64];
+                            3: proc_rdata_nxt = cch2[block_now][127:96];
+                            default: proc_rdata_nxt = 0; 
+                        endcase
+                    end
+                end
             end
         end
         ALLOCATE: begin
@@ -369,6 +358,8 @@ always@( posedge clk ) begin
         write       <= 0;
         addr        <= 0;
         wdata       <= 0;
+        m_cnt       <= 0;
+        t_cnt       <= 0;
     end
     else begin
         state <= state_nxt;
@@ -389,6 +380,8 @@ always@( posedge clk ) begin
         write       <= write_nxt;
         addr        <= addr_nxt;
         wdata       <= wdata_nxt;
+        m_cnt       <= m_cnt_nxt;
+        t_cnt       <= t_cnt_nxt;
     end
 end
 

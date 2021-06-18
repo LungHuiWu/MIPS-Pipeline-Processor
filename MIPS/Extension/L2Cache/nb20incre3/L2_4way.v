@@ -113,7 +113,7 @@ module L2(
             mem_wdata_nxt = 0;
             state_nxt = IDLE;
             set_nxt = NONE;
-            t_cnt_nxt = t_cnt + 1;
+            t_cnt_nxt = t_cnt;
             m_cnt_nxt = m_cnt;
             for (i=0 ; i<ENTRY ; i=i+1) begin
                 for (j=0 ; j<SET_NUM ; j=j+1) begin
@@ -145,6 +145,7 @@ module L2(
                         state_nxt = COMPARE;
                         ready_nxt = 0;
                         stall_nxt = 1;
+                        t_cnt_nxt = t_cnt + 1;
                     end
                 end 
                 COMPARE: begin
@@ -166,6 +167,7 @@ module L2(
                         ready_nxt = 0;
                         stall_nxt = 1;
                         m_cnt_nxt = m_cnt + 1;
+                        $display("L2(4way) : Miss/Total = %d/%d", m_cnt_nxt, t_cnt_nxt);
                         if (!valid[entry_now][0]) begin
                             state_nxt = ALLOCATE;
                             set_nxt = ONE;
@@ -232,6 +234,10 @@ module L2(
                         mem_wdata_nxt = cache[entry_now][set];
                         mem_addr_nxt = {tag[entry_now][set], entry_now};
                     end
+                    else begin
+                        mem_read_nxt = 1;
+                        mem_addr_nxt = addr[29:2];
+                    end
                 end            
                 ALLOCATE: begin
                     ready_nxt = 0;
@@ -297,6 +303,7 @@ module L2(
             mem_addr    <= mem_addr_nxt;
             m_cnt       <= m_cnt_nxt;
             t_cnt       <= t_cnt_nxt;
+            //$display("L2 : Total = %d", t_cnt);
         end
     end
 
