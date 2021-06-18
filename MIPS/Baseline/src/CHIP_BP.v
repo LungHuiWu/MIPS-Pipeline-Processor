@@ -210,7 +210,7 @@ wire 	[4:0]	WriteReg;
 wire 	[31:0]	WriteData;
 wire 	[31:0]	RegData1;
 wire 	[31:0]	RegData2;
-wire 	[31:0]	ReadData2;
+wire 	[31:0]	ReadData1;
 wire 	[31:0]	ReadData2;
 //========= Control =========================
 wire 	[3:0]   Jfamily; 
@@ -238,6 +238,7 @@ wire	[31:0]	ALUResult;
 //========= EX Part============================
 wire    [4:0]   RegDstOut;
 wire    [31:0]  ReadData2orImm;
+wire 	[31:0]	ExMem_data;
 
 //=============================================
 assign 	ICACHE_ren = 1'b1;
@@ -325,7 +326,7 @@ ForwardUnit FWU(
     .IdExRt(S2_I2),
     .ExMem_RegWrite(S3_WB[1]),
     .MemWb_RegWrite(S4_WB[1]),
-    .ExMem_data(S3_ALUResult),
+    .ExMem_data(ExMem_data),
     .MemWb_data(WriteData),
     .IdEx_data1(S2_rdata1),
     .IdEx_data2(ReadData2orImm),
@@ -344,7 +345,7 @@ ForwardBranchUnit FWBU(
 	.MemWb_RegWrite(S4_WB[1]),
     .IfId_Opcode(S1_inst[31:26]),
     .IfId_Funct4b(S1_inst[3:0]),
-    .ExMem_data(S3_ALUResult),
+    .ExMem_data(ExMem_data),
 	.MemWb_data(WriteData),
     .Reg_data1(RegData1),
     .Reg_data2(RegData2),
@@ -394,7 +395,7 @@ always @(*) begin
 	end
 end
 // IF
-assign 	PC4_A_SE_SL2 = PCadd4 + $signed({{16{ICACHE_rdata[15]}},ICACHE_rdata[15:0]})<<2;
+assign 	PC4_A_SE_SL2 = PCadd4 + $signed({{16{ICACHE_rdata[15]}}, ICACHE_rdata[15:0]}<<2);
 assign	PCSrc = (ICACHE_rdata[31:26] == J || ICACHE_rdata[31:26] == JAL) ? 2'b01 :
 				(Wrong) ? 2'b10 : (Jfamily[1]||Jfamily[0]) ? 2'b11 : 2'b00;
 
@@ -402,13 +403,13 @@ always @(*) begin
     S1_PC4_nxt = S1_PC4;
     if(!ICACHE_stall && !DCACHE_stall) begin
 		if (!IfId_Write) begin
-        	S1_PC_nxt = S1_PC;  
+        	S1_PC4_nxt = S1_PC4;  
 		end
 		else if (If_Flush) begin
-			S1_PC_nxt = 32'b0;
+			S1_PC4_nxt = 32'b0;
 		end
 		else begin
-			S1_PC_nxt = PCadd4;
+			S1_PC4_nxt = PCadd4;
 		end
 	end
 end
@@ -431,7 +432,15 @@ end
 always @(*) begin
     S1_BrAd_nxt = S1_BrAd;
     if(!ICACHE_stall && !DCACHE_stall) begin
-        S1_BrAd_nxt = PC4_A_SE_SL2;  
+		if (!IfId_Write) begin
+        	S1_BrAd_nxt = S1_BrAd; 
+		end
+		else if (If_Flush) begin
+			S1_inst_nxt = 32'b0;
+		end
+		else begin
+			S1_BrAd_nxt = PC4_A_SE_SL2; 
+		end
 	end
 end
 
@@ -445,6 +454,7 @@ end
 // ID
 assign	RegWrite = S4_WB[1];
 assign	WriteData = (S4_Jfamily[2] || S4_Jfamily[0]) ? S4_PC4 : S4_WB[0] ? S4_rdata : S4_ALUResult;
+assign 	ExMem_data = (S3_Jfamily[2] || S3_Jfamily[0]) ? S3_PC4 : S3_ALUResult;
 assign	WriteReg = S4_I;
 assign  ReadReg1 = S1_inst[25:21];
 assign  ReadReg2 = S1_inst[20:16];
@@ -592,4 +602,3 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 endmodule
-
