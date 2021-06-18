@@ -149,7 +149,7 @@ output  [31:0] 	ICACHE_wdata;
 input         	ICACHE_stall;
 input  	[31:0] 	ICACHE_rdata;
 //----------D Cache Interface-------
-output reg  DCACHE_ren, DCACHE_wen;
+output          DCACHE_ren, DCACHE_wen;
 output  [29:0] 	DCACHE_addr;
 output  [31:0] 	DCACHE_wdata;
 input         	DCACHE_stall;
@@ -157,7 +157,6 @@ input  	[31:0] 	DCACHE_rdata;
 
 //========= Pipeline Reg Declaration =========
 //--------- First Half -----------------------
-reg 	[1:0] 	DCACHE_state, DCACHE_state_nxt;
 reg 	[31:0]	PC, PC_nxt;
 reg 	[31:0]	S1_PC, S1_PC_nxt;
 reg 	[31:0]	S1_inst, S1_inst_nxt;
@@ -200,6 +199,8 @@ wire    [4:0]   ReadReg1;
 wire    [4:0]   ReadReg2;    
 wire 	[4:0]	WriteReg;
 wire 	[31:0]	WriteData;
+wire 	[31:0]	RegData1;
+wire 	[31:0]	RegData2;
 wire 	[31:0]	ReadData1;
 wire 	[31:0]	ReadData2;
 //========= Control =========================
@@ -222,9 +223,6 @@ wire	[31:0]  PCadd4;
 wire 	[31:0]	Alu_data1;
 wire 	[31:0]	Alu_data2;
 wire	[31:0]	ALUResult;
-//========= Branch Forwarding Unit=============
-wire 	[31:0] 	Branch_data1;
-wire 	[31:0] 	Branch_data2;
 //========= EX Part============================
 wire    [4:0]   RegDstOut;
 wire    [31:0]  ReadData2orImm;
@@ -233,6 +231,8 @@ wire    [31:0]  ReadData2orImm;
 assign 	ICACHE_ren = 1'b1;
 assign 	ICACHE_wen = 1'b0;
 assign	ICACHE_addr = PC[31:2];
+assign	DCACHE_wen = S3_M[0];
+assign	DCACHE_ren = S3_M[1];
 assign 	DCACHE_addr = S3_ALUResult[31:2];
 assign	DCACHE_wdata = S3_rdata;
 //========= Registers =========================
@@ -244,8 +244,8 @@ Registers register(
     .Read_register_2(ReadReg2),
     .Write_register(WriteReg),
     .Write_data(WriteData),
-    .Read_data_1(ReadData1),
-    .Read_data_2(ReadData2)
+    .Read_data_1(RegData1),
+    .Read_data_2(RegData2)
 );
 
 //========= Hazard Control ====================
@@ -307,58 +307,24 @@ ForwardUnit FWU(
 
 //========= Branch Forwarding Unit==================
 ForwardBranchUnit FWBU(
-    .ExMemRd(S3_I), 
+    .ExMemRd(S3_I),
+	.MemWbRd(S4_I), 
     .IfIdRs(S1_inst[25:21]),
     .IfIdRt(S1_inst[20:16]),
     .ExMem_RegWrite(S3_WB[1]),
+	.MemWb_RegWrite(S4_WB[1]),
     .IfId_Opcode(S1_inst[31:26]),
     .IfId_Funct4b(S1_inst[3:0]),
     .ExMem_data(S3_ALUResult),
-    .Reg_data1(ReadData1),
-    .Reg_data2(ReadData2),
+	.MemWb_data(WriteData),
+    .Reg_data1(RegData1),
+    .Reg_data2(RegData2),
     // output
-    .Branch_data1(Branch_data1),
-    .Branch_data2(Branch_data2)
+    .Read_data1(ReadData1),
+    .Read_data2(ReadData1)
 );
 //========= First Part ======================
-// assign	DCACHE_wen = S3_M[0] && !DCACHE_en;
-// assign	DCACHE_ren = S3_M[1] && !DCACHE_en;
-always @(*) begin
-	DCACHE_state_nxt = DCACHE_state;
-	case (DCACHE_state) 
-		2'b00: begin
-			DCACHE_wen = S3_M[0];
-			DCACHE_ren = S3_M[1];
-			if (S3_M[0]||S3_M[1]) begin
-				DCACHE_state_nxt = 2'b01;
-			end
-			else begin
-				DCACHE_state_nxt = 2'b00;
-			end
-			
-		end
-		2'b01: begin
-			DCACHE_wen = S3_M[0] && DCACHE_stall;
-			DCACHE_ren = S3_M[1] && DCACHE_stall;
-			if (!DCACHE_stall) begin
-				DCACHE_state_nxt = 2'b10;
-			end
-			else begin
-				DCACHE_state_nxt = 2'b01;
-			end
-		end
-		2'b10: begin
-			DCACHE_wen = 0;
-			DCACHE_ren = 0;
-			if (PC != PC_nxt) begin
-				DCACHE_state_nxt = 2'b00;
-			end
-			else begin
-				DCACHE_state_nxt = 2'b10;
-			end
-		end
-	endcase
-end
+
 // PC
 assign PCadd4 = PC + 4;
 always @(*) begin
@@ -379,7 +345,7 @@ always @(*) begin
 					PC_nxt = {S1_PC[31:28], S1_inst[25:0], 2'b00}; // Jump 
 				end
 				2'b11: begin
-					PC_nxt = Branch_data1;	// Jump Register
+					PC_nxt = ReadData1;	// Jump Register
 				end
 				default begin
 					
@@ -419,7 +385,7 @@ assign	WriteReg = S4_I;
 assign  ReadReg1 = S1_inst[25:21];
 assign  ReadReg2 = S1_inst[20:16];
 assign 	PC4_A_SE_SL2 = S1_PC + {{16{S1_inst[15]}},S1_inst[15:0]}<<2;
-assign  Equal = (Branch_data1 == Branch_data2);	
+assign  Equal = (ReadData1 == ReadData2);	
 assign	PCSrc = (Beq && Equal) || (Bne && !Equal) ? 2'b01 :
 				(Jfamily[3]||Jfamily[2]) ? 2'b10 : (Jfamily[1]||Jfamily[0]) ? 2'b11 : 2'b00;
 
@@ -501,7 +467,6 @@ end
 //======== Sequetial Part =======================
 always @(posedge clk or negedge rst_n) begin
 	if(!rst_n)begin
-		DCACHE_state	<= 0;
 		PC 				<= 0;
 		S1_PC 			<= 0;
 		S1_inst 		<= 0;
@@ -531,7 +496,6 @@ always @(posedge clk or negedge rst_n) begin
 		S4_I 			<= 0;
 	end
 	else begin
-		DCACHE_state	<= DCACHE_state_nxt;
 		PC 				<= PC_nxt;
 		S1_PC 			<= S1_PC_nxt;
 		S1_inst 		<= S1_inst_nxt;
