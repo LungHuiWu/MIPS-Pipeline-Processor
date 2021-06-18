@@ -321,7 +321,7 @@ ForwardBranchUnit FWBU(
     .Reg_data2(RegData2),
     // output
     .Read_data1(ReadData1),
-    .Read_data2(ReadData1)
+    .Read_data2(ReadData2)
 );
 //========= First Part ======================
 
@@ -339,7 +339,7 @@ always @(*) begin
 					PC_nxt = PCadd4;	// normal
 				end
 				2'b01: begin
-					PC_nxt = PC4_A_SE_SL2 + 4;	// branch
+					PC_nxt = PC4_A_SE_SL2;	// branch
 				end
 				2'b10: begin
 					PC_nxt = {S1_PC[31:28], S1_inst[25:0], 2'b00}; // Jump 
@@ -359,7 +359,15 @@ end
 always @(*) begin
     S1_PC_nxt = S1_PC;
     if(!ICACHE_stall && !DCACHE_stall) begin
-        S1_PC_nxt = PCadd4;  
+		if (!IfId_Write) begin
+        	S1_PC_nxt = S1_PC;  
+		end
+		else if (If_Flush) begin
+			S1_PC_nxt = 32'b0;
+		end
+		else begin
+			S1_PC_nxt = PCadd4;
+		end
 	end
 end
 
@@ -384,7 +392,7 @@ assign	WriteData = (S4_Jfamily[2] || S4_Jfamily[0]) ? S4_PC : S4_WB[0] ? S4_rdat
 assign	WriteReg = S4_I;
 assign  ReadReg1 = S1_inst[25:21];
 assign  ReadReg2 = S1_inst[20:16];
-assign 	PC4_A_SE_SL2 = S1_PC + {{16{S1_inst[15]}},S1_inst[15:0]}<<2;
+assign 	PC4_A_SE_SL2 = S1_PC + $signed({{16{S1_inst[15]}},S1_inst[15:0]}<<2);
 assign  Equal = (ReadData1 == ReadData2);	
 assign	PCSrc = (Beq && Equal) || (Bne && !Equal) ? 2'b01 :
 				(Jfamily[3]||Jfamily[2]) ? 2'b10 : (Jfamily[1]||Jfamily[0]) ? 2'b11 : 2'b00;

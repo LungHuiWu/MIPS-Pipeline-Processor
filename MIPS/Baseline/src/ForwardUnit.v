@@ -90,8 +90,8 @@ module ForwardBranchUnit (
 
     /* Assignment Part */
     assign IfId_isBranchUseType = (IfId_Opcode == BEQ) || (IfId_Opcode == BNE) || (IfId_Opcode == R_type && (IfId_Funct4b == JR || IfId_Funct4b == JALR));
-    assign Read_data1 = (ForwardA == 2'b00) ? Reg_data1 : (ForwardA == 2'b10) ExMem_data : MemWb_data;
-    assign Read_data2 = (ForwardB == 2'b00) ? Reg_data2 : (ForwardB == 2'b10) ExMem_data : MemWb_data;
+    assign Read_data1 = (ForwardA == 2'b00) ? Reg_data1 : (ForwardA == 2'b10) ? ExMem_data : MemWb_data;
+    assign Read_data2 = (ForwardB == 2'b00) ? Reg_data2 : (ForwardB == 2'b10) ? ExMem_data : MemWb_data;
 
     /* Combinational Part */
     always @(*) begin

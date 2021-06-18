@@ -394,14 +394,22 @@ always @(*) begin
 	end
 end
 // IF
-assign 	PC4_A_SE_SL2 = PCadd4 + {{16{ICACHE_rdata[15]}},ICACHE_rdata[15:0]}<<2;
+assign 	PC4_A_SE_SL2 = PCadd4 + $signed({{16{ICACHE_rdata[15]}},ICACHE_rdata[15:0]})<<2;
 assign	PCSrc = (ICACHE_rdata[31:26] == J || ICACHE_rdata[31:26] == JAL) ? 2'b01 :
 				(Wrong) ? 2'b10 : (Jfamily[1]||Jfamily[0]) ? 2'b11 : 2'b00;
 
 always @(*) begin
     S1_PC4_nxt = S1_PC4;
     if(!ICACHE_stall && !DCACHE_stall) begin
-        S1_PC4_nxt = PCadd4;  
+		if (!IfId_Write) begin
+        	S1_PC_nxt = S1_PC;  
+		end
+		else if (If_Flush) begin
+			S1_PC_nxt = 32'b0;
+		end
+		else begin
+			S1_PC_nxt = PCadd4;
+		end
 	end
 end
 
