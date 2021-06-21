@@ -18,9 +18,9 @@ module L2(
 //==== Input/Output definition ====
     input           clk;
     // L1 cache interface
-    output          ready;
-    output          stall;
-    output  [127:0] rdata;
+    output reg      ready;
+    output reg      stall;
+    output reg      [127:0] rdata;
     input   [127:0] wdata;
     input           read, write;
     input           reset;
@@ -28,9 +28,9 @@ module L2(
     // memory intrface
     input   [127:0] mem_rdata;
     input           mem_ready;
-    output          mem_read, mem_write;
-    output  [27:0]  mem_addr;
-    output  [127:0] mem_wdata;
+    output reg      mem_read, mem_write;
+    output reg      [27:0]  mem_addr;
+    output reg      [127:0] mem_wdata;
 
 //==== Parameter ====
 
@@ -45,39 +45,31 @@ module L2(
     parameter NONE  = 1;
 
     parameter IDLE      = 0;
-    parameter COMPARE   = 1;
+    parameter WRITE_READ   = 1;
     parameter WRITEBACK = 2;
     parameter ALLOCATE  = 3;
 
 //==== Wire & Reg ====
 
-    // Output
-        reg     ready, ready_nxt;
-        reg     stall, stall_nxt;
-        reg     [127:0]  rdata, rdata_nxt;
-        reg     mem_read, mem_read_nxt;
-        reg     mem_write, mem_write_nxt;
-        reg     [27:0]  mem_addr, mem_addr_nxt;
-        reg     [127:0] mem_wdata, mem_wdata_nxt;
     // State
-        reg     set, set_nxt;
         reg     [1:0]   state, state_nxt;
     // Cache memory
-        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache       [0:ENTRY-1][0:SET_NUM-1];
-        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache_nxt   [0:ENTRY-1][0:SET_NUM-1];
-        reg     [TAGLEN-1 : 0]      tag         [0:ENTRY-1][0:SET_NUM-1];
-        reg     [TAGLEN-1 : 0]      tag_nxt     [0:ENTRY-1][0:SET_NUM-1];
-        reg     valid       [0:ENTRY-1][0:SET_NUM-1];
-        reg     valid_nxt   [0:ENTRY-1][0:SET_NUM-1];
-        reg     dirty       [0:ENTRY-1][0:SET_NUM-1];
-        reg     dirty_nxt   [0:ENTRY-1][0:SET_NUM-1];
+        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache       [0:ENTRY-1];
+        reg     [WORDLEN*WORDPERDATA-1 : 0]   cache_nxt   [0:ENTRY-1];
+        reg     [TAGLEN-1 : 0]      tag         [0:ENTRY-1];
+        reg     [TAGLEN-1 : 0]      tag_nxt     [0:ENTRY-1];
+        reg     valid       [0:ENTRY-1];
+        reg     valid_nxt   [0:ENTRY-1];
+        reg     dirty       [0:ENTRY-1];
+        reg     dirty_nxt   [0:ENTRY-1];
     // Partition of address
         wire    [5:0]                   entry_now;
         reg     [1:0]                   set_now;
         wire    [TAGLEN-1:0]            tag_now;
     // Hit, Miss
-        wire    [SET_NUM-1:0]   hit_each;
         wire    hit;
+        wire    miss1_clean;
+        wire    miss1_dirty;
     // Count
         reg     [15:0]  m_cnt, m_cnt_nxt;
         reg     [15:0]  t_cnt, t_cnt_nxt;
@@ -92,120 +84,155 @@ module L2(
         assign  tag_now     =   addr[29:8];
 
     // Hit, Miss
-        generate
-            for(k=0;k<SET_NUM;k=k+1) begin
-                assign hit_each[k] = valid[entry_now][k] && (tag[entry_now][k] == tag_now);
-            end
-        endgenerate
-        assign hit = |hit_each;
+        assign hit = valid[entry_now] && (tag[entry_now] == tag_now);
+        assign miss1_clean = !hit && !dirty[entry_now];
+        assign miss1_dirty = !hit && dirty[entry_now];
 
     // Next state logic
         always @(*) begin
-            stall_nxt = 0;
-            ready_nxt = 0;
-            rdata_nxt = 0;
-            mem_read_nxt = 0;
-            mem_write_nxt = 0;
-            mem_addr_nxt = 0;
-            mem_wdata_nxt = 0;
-            state_nxt = IDLE;
-            set_nxt = NONE;
+            stall = 0;
+            ready = 0;
+            rdata = 0;
+            mem_read = 0;
+            mem_write = 0;
+            mem_addr = 0;
+            mem_wdata = 0;
+            state_nxt = state;
             t_cnt_nxt = t_cnt;
             m_cnt_nxt = m_cnt;
             for (i=0 ; i<ENTRY ; i=i+1) begin
-                for (j=0 ; j<SET_NUM ; j=j+1) begin
-                    cache_nxt[i][j]     = cache[i][j];
-                    tag_nxt[i][j]       = tag[i][j];
-                    dirty_nxt[i][j]     = dirty[i][j];
-                    valid_nxt[i][j]     = valid[i][j];
-                end
+                cache_nxt[i]     = cache[i];
+                tag_nxt[i]       = tag[i];
+                dirty_nxt[i]     = dirty[i];
+                valid_nxt[i]     = valid[i];
             end
-            // Set now
-                if (hit_each[0]) begin 
-                    set_now = 0;
-                end
-                else begin
-                    set_now = 0;
-                end
             case (state)
                 IDLE: begin
-                    if (read || write) begin
-                        state_nxt = COMPARE;
-                        ready_nxt = 0;
-                        stall_nxt = 1;
+                    if (hit && read) begin
                         t_cnt_nxt = t_cnt + 1;
+                        rdata = cache[entry_now];
+                        stall = 0;
+                        ready = 1;
                     end
-                end
-                COMPARE: begin
-                    if (hit) begin // hit
-                        ready_nxt = 1;
-                        stall_nxt = 0;
-                        state_nxt = IDLE;
-                        // read
-                        if (read) begin
-                            rdata_nxt = cache[entry_now][set_now];
-                        end
-                        // write
-                        else if (write) begin
-                            dirty_nxt[entry_now][set_now] = 1;
-                            cache_nxt[entry_now][set_now] = wdata;
-                        end
+                    else if (hit && write) begin
+                        t_cnt_nxt = t_cnt + 1;
+                        cache_nxt[entry_now] = wdata;
+                        dirty[entry_now] = 1;
+                        stall = 0;
+                        ready = 1;
                     end
-                    else begin // miss
-                        ready_nxt = 0;
-                        stall_nxt = 1;
+                    else begin
+                        t_cnt_nxt = t_cnt + 1;
                         m_cnt_nxt = m_cnt + 1;
-                        $display("L2(dm) : Miss/Total = %d/%d", m_cnt_nxt, t_cnt_nxt);
-                        if (!valid[entry_now][0]) begin
-                            state_nxt = ALLOCATE;
-                            set_nxt = ONE;
-                            mem_read_nxt = 1;
-                            mem_addr_nxt = addr[29:2];
+                        mem_addr = addr[29:2];
+                        if (miss1_dirty && (read||write)) begin
+                            state_nxt = WRITEBACK;
+                            mem_write = 1;
+                            mem_read = 0;
+                            mem_addr = {tag[entry_now], entry_now};
+                            mem_wdata = cache[entry_now];
+                            stall = 1;
+                            ready = 0;
                         end
-                        else if (!dirty[entry_now][0]) begin
-                            state_nxt = ALLOCATE;
-                            set_nxt = ONE;
-                            mem_read_nxt = 1;
-                            mem_addr_nxt = addr[29:2];
+                        else if (miss1_clean) begin
+                            if (read) begin
+                                state_nxt = ALLOCATE;
+                                mem_write = 0;
+                                mem_read = 1;
+                                mem_addr = addr[29:2];
+                                stall = 1;
+                                ready = 0;
+                            end
+                            else if (write) begin
+                                /*state_nxt = WRITE_READ;
+                                mem_write = 0;
+                                mem_read = 1;
+                                mem_addr = addr[29:2];
+                                stall = 1;
+                                ready = 0;*/
+                                cache_nxt[entry_now] = wdata;
+                                valid_nxt[entry_now] = 1;
+                                dirty_nxt[entry_now] = 1;
+                                tag_nxt[entry_now] = tag_now;
+                                state_nxt = IDLE;
+                                stall = 0;
+                                ready = 1;
+                                mem_read = 0;
+                                mem_write = 0;
+                            end
+                            else begin
+                                state_nxt = IDLE;
+                                mem_read = 0;
+                                mem_write = 0;
+                            end
                         end
                         else begin
-                            state_nxt = WRITEBACK;
-                            set_nxt = ONE;
-                            mem_write_nxt = 1;
-                            mem_addr_nxt = {tag[entry_now][0], entry_now};
+                            state_nxt = IDLE;
+                            mem_write = 0;
+                            mem_read = 0;
                         end
                     end
                 end
                 WRITEBACK: begin
-                    ready_nxt = 0;
-                    stall_nxt = 1;
-                    set_nxt = set;
-                    state_nxt = mem_ready ? ALLOCATE : WRITEBACK;
-                    if (!mem_ready) begin
-                        mem_write_nxt = 1;
-                        mem_wdata_nxt = cache[entry_now][set];
-                        mem_addr_nxt = {tag[entry_now][set], entry_now};
+                    mem_addr = {tag[entry_now], entry_now};
+                    if (mem_ready) begin
+                        dirty_nxt[entry_now] = 0;
+                        stall = 1;
+                        ready = 0;
+                        state_nxt = IDLE;
+                        mem_read = 1;
+                        mem_write = 0;
                     end
                     else begin
-                        mem_read_nxt = 1;
-                        mem_addr_nxt = addr[29:2];
+                        mem_wdata = cache[entry_now];
+                        mem_read = 0;
+                        mem_write = 1;
+                        state_nxt = WRITEBACK;
+                        stall = 1;
+                        ready = 0;
                     end
                 end            
                 ALLOCATE: begin
-                    ready_nxt = 0;
-                    stall_nxt = 1;
-                    set_nxt = set;
-                    if (!mem_ready) begin
-                        state_nxt = ALLOCATE;
-                        mem_read_nxt = 1;
-                        mem_addr_nxt = addr[29:2];
+                    mem_addr = addr[29:2];
+                    if (mem_ready) begin
+                        cache_nxt[entry_now] = mem_rdata;
+                        valid_nxt[entry_now] = 1;
+                        dirty_nxt[entry_now] = 0;
+                        tag_nxt[entry_now] = tag_now;
+                        stall = 0;
+                        ready = 1;
+                        state_nxt = IDLE;
+                        rdata = mem_rdata;
+                        mem_read = 0;
+                        mem_write = 0;
                     end
                     else begin
-                        state_nxt = COMPARE;
-                        tag_nxt[entry_now][set] = tag_now;
-                        valid_nxt[entry_now][set] = 1;
-                        dirty_nxt[entry_now][set] = 0;
-                        cache_nxt[entry_now][set] = mem_rdata;
+                        mem_read = 1;
+                        mem_write = 0;
+                        state_nxt = ALLOCATE;
+                        stall = 1;
+                        ready = 0;
+                    end
+                end
+                WRITE_READ: begin
+                    mem_addr = addr[29:2];
+                    if (mem_ready) begin
+                        cache_nxt[entry_now] = wdata;
+                        valid_nxt[entry_now] = 1;
+                        dirty_nxt[entry_now] = 1;
+                        tag_nxt[entry_now] = tag_now;
+                        state_nxt = IDLE;
+                        stall = 0;
+                        ready = 1;
+                        mem_read = 0;
+                        mem_write = 0;
+                    end
+                    else begin
+                        state_nxt = WRITE_READ;
+                        stall = 1;
+                        ready = 0;
+                        mem_read = 1;
+                        mem_write = 0;
                     end
                 end
             endcase
@@ -216,43 +243,25 @@ module L2(
     always @( posedge clk ) begin
         if (reset) begin
             state   <= IDLE;
-            set     <= NONE;
             for (i=0 ; i<ENTRY ; i=i+1) begin
                 for (j=0 ; j<SET_NUM ; j=j+1) begin
-                    cache[i][j]     <= 0;
-                    tag[i][j]       <= 0;
-                    dirty[i][j]     <= 0;
-                    valid[i][j]     <= 0;
+                    cache[i]     <= 0;
+                    tag[i]       <= 0;
+                    dirty[i]     <= 0;
+                    valid[i]     <= 0;
                 end
             end
-            stall       <= 0;
-            ready       <= 0;
-            rdata       <= 0;
-            mem_wdata   <= 0;
-            mem_read    <= 0;
-            mem_write   <= 0;
-            mem_addr    <= 0;
             m_cnt       <= 0;
             t_cnt       <= 0;
         end
         else begin
             state   <= state_nxt;
-            set     <= set_nxt;
             for (i=0 ; i<ENTRY ; i=i+1) begin
-                for (j=0 ; j<SET_NUM ; j=j+1) begin
-                    cache[i][j]     <= cache_nxt[i][j];
-                    tag[i][j]       <= tag_nxt[i][j];
-                    dirty[i][j]     <= dirty_nxt[i][j];
-                    valid[i][j]     = valid_nxt[i][j];
-                end
+                cache[i]     <= cache_nxt[i];
+                tag[i]       <= tag_nxt[i];
+                dirty[i]     <= dirty_nxt[i];
+                valid[i]     = valid_nxt[i];
             end
-            stall       <= stall_nxt;
-            ready       <= ready_nxt;
-            rdata       <= rdata_nxt;
-            mem_wdata   <= mem_wdata_nxt;
-            mem_read    <= mem_read_nxt;
-            mem_write   <= mem_write_nxt;
-            mem_addr    <= mem_addr_nxt;
             m_cnt       <= m_cnt_nxt;
             t_cnt       <= t_cnt_nxt;
         end

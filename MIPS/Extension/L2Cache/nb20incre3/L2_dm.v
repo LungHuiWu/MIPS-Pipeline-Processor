@@ -155,7 +155,7 @@ module L2(
                         ready_nxt = 0;
                         stall_nxt = 1;
                         m_cnt_nxt = m_cnt + 1;
-                        $display("L2(dm) : Miss/Total = %d/%d", m_cnt_nxt, t_cnt_nxt);
+                        // $display("L2(dm) : Miss/Total = %d/%d", m_cnt_nxt, t_cnt_nxt);
                         if (!valid[entry_now][0]) begin
                             state_nxt = ALLOCATE;
                             set_nxt = ONE;

@@ -1,4 +1,4 @@
-`include "cache.v"
+`include "cache_ezpz.v"
 `include "ALU.v"
 `include "Control.v"
 `include "Registers.v"

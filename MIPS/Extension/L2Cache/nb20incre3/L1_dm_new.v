@@ -89,27 +89,27 @@ assign hit = hit1;
 assign miss = ~hit;
 
 always @(*) begin
-    // initial value
-    for(i=0;i<ENTRYNUM;i=i+1)begin
-        cch1_nxt[i] = cch1[i];
-        valid1_nxt[i] = valid1[i];
-        tag1_nxt[i] = tag1[i];
-        dirty1_nxt[i] = dirty1[i];
-    end
-    state_nxt = IDLE;
-    m_cnt_nxt = m_cnt;
-    t_cnt_nxt = t_cnt;
-    proc_stall = 0;
-    proc_rdata = 0;
-    read = 0;
-    write = 0;
-    addr = 0;
-    wdata = 0;
-    case (state)
-        IDLE: begin
-            if(proc_read || proc_write) begin
-                t_cnt_nxt = t_cnt + 1;
+    //if (!stall) begin
+        // initial value
+        for(i=0;i<ENTRYNUM;i=i+1)begin
+            cch1_nxt[i] = cch1[i];
+            valid1_nxt[i] = valid1[i];
+            tag1_nxt[i] = tag1[i];
+            dirty1_nxt[i] = dirty1[i];
+        end
+        state_nxt = state;
+        m_cnt_nxt = m_cnt;
+        t_cnt_nxt = t_cnt;
+        proc_stall = 0;
+        proc_rdata = 0;
+        read = 0;
+        write = 0;
+        addr = 0;
+        wdata = 0;
+        case (state)
+            IDLE: begin
                 if (hit && proc_read) begin
+                    t_cnt_nxt = t_cnt + 1;
                     case (word_idx)
                         0: proc_rdata = cch1[block_now][31:0];
                         1: proc_rdata = cch1[block_now][63:32];
@@ -119,6 +119,7 @@ always @(*) begin
                     endcase
                 end
                 else if (hit && proc_write) begin
+                    t_cnt_nxt = t_cnt + 1;
                     case (word_idx)
                         0: cch1_nxt[block_now][31:0] = proc_wdata;
                         1: cch1_nxt[block_now][63:32] = proc_wdata;
@@ -129,24 +130,35 @@ always @(*) begin
                     dirty1_nxt[block_now] = 1;
                 end
                 else begin
+                    t_cnt_nxt = t_cnt + 1;
                     m_cnt_nxt = m_cnt + 1;
-                    proc_stall = 1;
+                    proc_stall = 0;
+                    if(proc_read || proc_write) begin
+                        proc_stall = 1;
+                    end
                     addr = proc_addr;
                     if (miss1_dirty) begin
                         state_nxt = WRITEBACK;
                         write = 1;
                         read = 0;
+                        addr = {tag1[block_now], block_now, word_idx};
+                        wdata = cch1[block_now];
+                        proc_stall = 1;
                     end
                     else if (miss1_clean) begin
                         if (proc_read) begin
                             state_nxt = ALLOCATE;
                             write = 0;
                             read = 1;
+                            proc_stall = 1;
+                            addr = proc_addr;
                         end
                         else if (proc_write) begin
+                            proc_stall = 1;
                             state_nxt = WRITE_READ;
                             write = 0;
                             read = 1;
+                            addr = proc_addr;
                         end
                     end
                     else begin
@@ -156,79 +168,80 @@ always @(*) begin
                     end
                 end
             end
-        end
-        ALLOCATE: begin
-            addr = proc_addr;
-            if (ready) begin
-                cch1_nxt[block_now] = rdata;
-                valid1_nxt[block_now] = 1;
-                dirty1_nxt[block_now] = 0;
-                tag1_nxt[block_now] = tag_now;
-                addr = 0;
-                proc_stall = 0;
-                state_nxt = IDLE;
-                case (word_idx)
-                    0: proc_rdata = rdata[31:0];
-                    1: proc_rdata = rdata[63:32];
-                    2: proc_rdata = rdata[95:64];
-                    3: proc_rdata = rdata[127:96];
-                    default: proc_rdata = 0;
-                endcase
-                read = 0;
-                write = 0;
-            end
-            else begin
-                read = 1;
-                write = 0;
-                state_nxt = ALLOCATE;
-                proc_stall = 1;
+            ALLOCATE: begin
                 addr = proc_addr;
+                if (ready) begin
+                    cch1_nxt[block_now] = rdata;
+                    valid1_nxt[block_now] = 1;
+                    dirty1_nxt[block_now] = 0;
+                    tag1_nxt[block_now] = tag_now;
+                    addr = proc_addr;
+                    proc_stall = 0;
+                    state_nxt = IDLE;
+                    case (word_idx)
+                        0: proc_rdata = rdata[31:0];
+                        1: proc_rdata = rdata[63:32];
+                        2: proc_rdata = rdata[95:64];
+                        3: proc_rdata = rdata[127:96];
+                        default: proc_rdata = 0;
+                    endcase
+                    read = 1;
+                    write = 0;
+                end
+                else begin
+                    read = 1;
+                    write = 0;
+                    state_nxt = ALLOCATE;
+                    proc_stall = 1;
+                    addr = proc_addr;
+                end
             end
-        end
-        WRITEBACK: begin
-            if (ready) begin
-                dirty1_nxt[block_now] = 0;
-                proc_stall = 1;
-                state_nxt = IDLE;
-                read = 1;
-                write = 0;
-            end
-            else begin
+            WRITEBACK: begin
                 addr = {tag1[block_now], block_now, word_idx};
-                wdata = cch1[block_now];
-                read = 0;
-                write = 1;
-                state_nxt = WRITEBACK;
-                proc_stall = 1;
+                if (ready) begin
+                    dirty1_nxt[block_now] = 0;
+                    proc_stall = 1;
+                    state_nxt = IDLE;
+                    read = 1;
+                    write = 0;
+                end
+                else begin
+                    wdata = cch1[block_now];
+                    read = 0;
+                    write = 1;
+                    state_nxt = WRITEBACK;
+                    proc_stall = 1;
+                end
             end
-        end
-        WRITE_READ: begin
-            if (ready) begin
-                cch1_nxt[block_now] = rdata;
-                case (word_idx)
-                    0: cch1_nxt[block_now][31:0] = proc_wdata;
-                    1: cch1_nxt[block_now][63:32] = proc_wdata;
-                    2: cch1_nxt[block_now][95:64] = proc_wdata;
-                    3: cch1_nxt[block_now][127:96] = proc_wdata;
-                    default: cch1_nxt[block_now] = cch1[block_now];
-                endcase
-                valid1_nxt[block_now] = 1;
-                dirty1_nxt[block_now] = 1;
-                tag1_nxt[block_now] = tag_now;
-                state_nxt = IDLE;
-                addr = 0;
-                proc_stall = 0;
-                read = 0;
-                write = 0;
+            WRITE_READ: begin
+                if (ready) begin
+                    cch1_nxt[block_now] = rdata;
+                    case (word_idx)
+                        0: cch1_nxt[block_now][31:0] = proc_wdata;
+                        1: cch1_nxt[block_now][63:32] = proc_wdata;
+                        2: cch1_nxt[block_now][95:64] = proc_wdata;
+                        3: cch1_nxt[block_now][127:96] = proc_wdata;
+                        default: cch1_nxt[block_now] = cch1[block_now];
+                    endcase
+                    valid1_nxt[block_now] = 1;
+                    dirty1_nxt[block_now] = 1;
+                    tag1_nxt[block_now] = tag_now;
+                    state_nxt = IDLE;
+                    addr = proc_addr;
+                    proc_stall = 0;
+                    read = 1;
+                    write = 0;
+                end
+                else begin
+                    state_nxt = WRITE_READ;
+                    proc_stall = 1;
+                    read = 1;
+                    write = 0;
+                    addr = proc_addr;
+                end
             end
-            else begin
-                state_nxt = WRITE_READ;
-                proc_stall = 1;
-                read = 1;
-                write = 0;
-            end
-        end
-    endcase
+        endcase
+    //end
 end
 
 //==== sequential circuit =================================
