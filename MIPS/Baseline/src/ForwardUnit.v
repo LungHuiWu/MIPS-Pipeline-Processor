@@ -13,7 +13,7 @@ module ForwardUnit (
     IdEx_data2,
     // output
     Alu_data1,
-    Alu_data2
+    FU_outdata2
 );
     /* Inputs/Outputs Part */
     input  [4:0]  ExMemRd, MemWbRd;
@@ -21,16 +21,15 @@ module ForwardUnit (
     input         ExMem_RegWrite, MemWb_RegWrite; 
     input  [31:0] ExMem_data, MemWb_data;
     input  [31:0] IdEx_data1, IdEx_data2; 
-    output [31:0] Alu_data1, Alu_data2; 
+    output [31:0] Alu_data1, FU_outdata2; 
 
     /* Wires/Regs Part */
     reg [1:0] ForwardA; // Alu_data mux control, 00 from ID/EX, 10 from EX/MEM, 01 from MEM/WB
     reg [1:0] ForwardB; 
 
     /* Assignment Part */
-    assign Alu_data1 = (ForwardA == 2'b00) ? IdEx_data1 : (ForwardA == 2'b10) ? ExMem_data : MemWb_data;
-    assign Alu_data2 = (ForwardB == 2'b00) ? IdEx_data2 : (ForwardB == 2'b10) ? ExMem_data : MemWb_data;
-
+    assign Alu_data1    = (ForwardA == 2'b00) ? IdEx_data1 : (ForwardA == 2'b10) ? ExMem_data : MemWb_data;
+    assign FU_outdata2  = (ForwardB == 2'b00) ? IdEx_data2 : (ForwardB == 2'b10) ? ExMem_data : MemWb_data;
     /* Combinational Part */
     always @(*) begin
         if (ExMem_RegWrite && ExMemRd != 5'd0 && ExMemRd == IdExRs) ForwardA = 2'b10;

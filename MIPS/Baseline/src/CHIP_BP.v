@@ -237,8 +237,8 @@ wire 	[31:0]	Alu_data2;
 wire	[31:0]	ALUResult;
 //========= EX Part============================
 wire    [4:0]   RegDstOut;
-wire    [31:0]  ReadData2orImm;
 wire 	[31:0]	ExMem_data;
+wire 	[31:0] 	FU_outdata2;
 
 //=============================================
 assign 	ICACHE_ren = 1'b1;
@@ -329,10 +329,10 @@ ForwardUnit FWU(
     .ExMem_data(ExMem_data),
     .MemWb_data(WriteData),
     .IdEx_data1(S2_rdata1),
-    .IdEx_data2(ReadData2orImm),
+    .IdEx_data2(S2_rdata2),
 	// output
     .Alu_data1(Alu_data1),
-    .Alu_data2(Alu_data2)
+    .FU_outdata2(FU_outdata2)
 );
 
 //========= Branch Forwarding Unit==================
@@ -396,8 +396,8 @@ always @(*) begin
 end
 // IF
 assign 	PC4_A_SE_SL2 = PCadd4 + $signed({{16{ICACHE_rdata[15]}}, ICACHE_rdata[15:0]}<<2);
-assign	PCSrc = (ICACHE_rdata[31:26] == J || ICACHE_rdata[31:26] == JAL) ? 2'b01 :
-				(Wrong) ? 2'b10 : (Jfamily[1]||Jfamily[0]) ? 2'b11 : 2'b00;
+assign	PCSrc = (!If_Flush && ICACHE_rdata[31:26] == J || ICACHE_rdata[31:26] == JAL) ? 2'b01 :
+				(If_Flush && Wrong) ? 2'b10 : (If_Flush && Jfamily[1]||Jfamily[0]) ? 2'b11 : 2'b00;
 
 always @(*) begin
     S1_PC4_nxt = S1_PC4;
@@ -496,7 +496,7 @@ end
 
 //========= Second Part =====================
 // EX
-assign	ReadData2orImm = S2_EX[4] ? S2_I1 : S2_rdata2;
+assign	Alu_data2 = S2_EX[4] ? S2_I1 : FU_outdata2;
 assign  RegDstOut = (S2_EX[5]) ? S2_I3 : S2_I2;
 always @(*) begin
 	S3_PC4_nxt = S3_PC4;
@@ -512,7 +512,7 @@ always @(*) begin
 		S3_M_nxt = S2_M;
 		S3_Jfamily_nxt = S2_Jfamily;
 		S3_ALUResult_nxt = ALUResult;
-		S3_rdata_nxt = S2_rdata2;
+		S3_rdata_nxt = FU_outdata2;
 		S3_I_nxt = RegDstOut;
 	end
 end
