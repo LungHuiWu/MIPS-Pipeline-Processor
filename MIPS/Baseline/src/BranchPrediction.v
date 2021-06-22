@@ -141,7 +141,7 @@ module BranchPredict_2b (
     /* Sequential Part */
     always @(posedge clk) begin
         if (!rst_n) begin
-            state_r <= S_SNT;
+            state_r <= S_WNT;
         end
         else begin
             state_r <= state_w;

@@ -285,7 +285,7 @@ HazardControlforBrPred HC(
 BranchPredict_2b BP(
     .clk(clk),
     .rst_n(rst_n),
-    .stall(!ICACHE_stall && !DCACHE_stall),
+    .stall(!ICACHE_stall && !DCACHE_stall && Pc_Write),
     .If_Opcode(ICACHE_rdata[31:26]),
     .predWrong(Wrong),
     // output
