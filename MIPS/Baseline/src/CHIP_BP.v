@@ -229,6 +229,7 @@ wire 	[13:0] 	CtrlMuxOut;
 wire            Wrong;
 //========= Branch Predictor ================
 wire            predTaken;
+wire            realTaken;
 //========= PC ====================
 wire	[31:0]  PCadd4; 
 //========= ALU =============================
@@ -282,12 +283,26 @@ HazardControlforBrPred HC(
 	.If_Flush(If_Flush)
 );
 //========= Branch Predictor ================
-BranchPredict_2b BP(
+// BranchPredict_2b BP(
+//     .clk(clk),
+//     .rst_n(rst_n),
+//     .stall(1),
+//     .If_Opcode(S1_inst[31:26]),
+//     .PC(PC4_A_SE_SL2),
+//     .S1_PC4(S1_BrAd),
+//     .predWrong(Wrong),
+//     // output
+//     .predTaken(predTaken)
+// );
+BranchPredict_Correlated BPC(
     .clk(clk),
     .rst_n(rst_n),
-    .stall(!ICACHE_stall && !DCACHE_stall && Pc_Write),
-    .If_Opcode(ICACHE_rdata[31:26]),
+    .stall(ICACHE_stall || DCACHE_stall || !Pc_Write),
+    .If_Opcode(S1_inst[31:26]),
+    .PC(PC4_A_SE_SL2),
+    .S1_PC4(S1_BrAd),
     .predWrong(Wrong),
+    .realTaken(realTaken),
     // output
     .predTaken(predTaken)
 );
@@ -357,6 +372,7 @@ ForwardBranchUnit FWBU(
 
 // PC
 assign PCadd4 = PC + 4;
+assign realTaken = (Beq && Equal) || (Bne && !Equal);
 always @(*) begin
 	PC_nxt = PC;
 	if(!ICACHE_stall && !DCACHE_stall) begin
@@ -377,7 +393,7 @@ always @(*) begin
 					PC_nxt = {PCadd4[31:28], ICACHE_rdata[25:0], 2'b00}; 
 				end
 				2'b10: begin // PredWrong PC4/Branch 
-                    if ((Beq && Equal) || (Bne && !Equal)) begin
+                    if (realTaken) begin
                         PC_nxt = S1_BrAd;
                     end
                     else begin
@@ -436,7 +452,7 @@ always @(*) begin
         	S1_BrAd_nxt = S1_BrAd; 
 		end
 		else if (If_Flush) begin
-			S1_inst_nxt = 32'b0;
+			S1_BrAd_nxt = 32'b0;
 		end
 		else begin
 			S1_BrAd_nxt = PC4_A_SE_SL2; 
@@ -447,7 +463,15 @@ end
 always @(*) begin
     S1_predTaken_nxt = S1_predTaken;
     if(!ICACHE_stall && !DCACHE_stall) begin
-        S1_predTaken_nxt = predTaken;  
+		if (!IfId_Write) begin
+        	S1_predTaken_nxt = S1_predTaken; 
+		end
+		else if (If_Flush) begin
+			S1_predTaken_nxt = 0;
+		end
+		else begin
+			S1_predTaken_nxt = predTaken; 
+		end
 	end
 end
 
