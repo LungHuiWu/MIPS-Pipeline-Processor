@@ -203,7 +203,7 @@ module BranchPredict_2b (
         end
     end
 
-// endmodule
+endmodule
 /** global branch predictor **/
 // module BranchPredict_2b (
 //     // input
