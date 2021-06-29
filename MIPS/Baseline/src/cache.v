@@ -22,365 +22,465 @@ module cache(
     input          proc_read, proc_write;
     input   [29:0] proc_addr;
     input   [31:0] proc_wdata;
-    output         proc_stall;
-    output  [31:0] proc_rdata;
+    output reg        proc_stall;
+    output reg [31:0] proc_rdata;
     // memory interface
     input  [127:0] mem_rdata;
     input          mem_ready;
-    output         mem_read, mem_write;
-    output  [27:0] mem_addr;
-    output [127:0] mem_wdata;
+    output reg        mem_read, mem_write;
+    output reg [27:0] mem_addr;
+    output reg [127:0] mem_wdata;
 
-//==== parameters =========================================
+//==== parameter definition ===============================
+    parameter IDLE  = 0;
+    parameter READ  = 1;
+    parameter WRITE_READ  = 2;
+    parameter WRITE_BACK  = 3;
 
-    parameter WORDLEN = 32;
-    parameter BLOCKNUM = 4;
-    parameter TAGLEN = 26;
-
-    parameter NONE = 2'd0;
-    parameter ONE = 2'd1;
-    parameter TWO = 2'd2;
-
-    parameter IDLE = 3'd0;
-    parameter COMPARE = 3'd1;
-    parameter ALLOCATE = 3'd2;
-    parameter WRITEBACK = 3'd3;
-    parameter READ = 3'd4;
-    parameter WRITE = 3'd5;
+    
     
 //==== wire/reg definition ================================
-    
-    /// internal FF
-    // state
-    reg     [2:0]   state, state_nxt;
-    reg     [1:0]   set, set_nxt;
-    // cache 1
-    reg     [WORDLEN*4-1:0] cch1        [0:BLOCKNUM-1];
-    reg     [WORDLEN*4-1:0] cch1_nxt    [0:BLOCKNUM-1];
-    reg     [TAGLEN-1:0]    tag1        [0:BLOCKNUM-1];
-    reg     [TAGLEN-1:0]    tag1_nxt    [0:BLOCKNUM-1];
-    reg     valid1      [0:BLOCKNUM-1];
-    reg     valid1_nxt  [0:BLOCKNUM-1];
-    reg     dirty1      [0:BLOCKNUM-1];
-    reg     dirty1_nxt  [0:BLOCKNUM-1];
-    // cache 2
-    reg     [WORDLEN*4-1:0] cch2        [0:BLOCKNUM-1];
-    reg     [WORDLEN*4-1:0] cch2_nxt    [0:BLOCKNUM-1];
-    reg     [TAGLEN-1:0]    tag2        [0:BLOCKNUM-1];
-    reg     [TAGLEN-1:0]    tag2_nxt    [0:BLOCKNUM-1];
-    reg     valid2      [0:BLOCKNUM-1];
-    reg     valid2_nxt  [0:BLOCKNUM-1];
-    reg     dirty2      [0:BLOCKNUM-1];
-    reg     dirty2_nxt  [0:BLOCKNUM-1];
+    reg         valid0_w   [3:0], valid1_w   [3:0];
+    reg         valid0_r   [3:0], valid1_r   [3:0];
+    reg         dirty0_w   [3:0], dirty1_w   [3:0];
+    reg         dirty0_r   [3:0], dirty1_r   [3:0];
+    reg [25:0]  tag0_w     [3:0], tag1_w     [3:0];
+    reg [25:0]  tag0_r     [3:0], tag1_r     [3:0];
+    reg [127:0] data0_w    [3:0], data1_w    [3:0];
+    reg [127:0] data0_r    [3:0], data1_r    [3:0];
+    reg         mem_ready_w, mem_ready_r;
 
-    /// output FF
-    reg     proc_stall, proc_stall_nxt;
-    reg     [31:0]  proc_rdata, proc_rdata_nxt;
-    reg     mem_read, mem_read_nxt;
-    reg     mem_write, mem_write_nxt;
-    reg     [27:0]  mem_addr, mem_addr_nxt;
-    reg     [127:0] mem_wdata, mem_wdata_nxt;
+    wire [1:0]   block;
+    wire [1:0]   offset;
+    wire         hit0, hit1;
 
-    wire    [1:0]   block_now;
-    wire    [25:0]  tag_now;
-    wire    [1:0]   word_idx;
-    wire    hit1;
-    wire    hit2;
-    wire    miss1_clean;
-    wire    miss1_dirty;
-    wire    miss2_clean;
-    wire    miss2_dirty;
-    wire    hit;
-    wire    miss;
+    reg [2:0]   state_w, state_r;
+    reg         mode_w [3:0], mode_r [3:0];
 
-    integer i;
+    assign block    = proc_addr[3:2];
+    assign offset   = proc_addr[1:0];
+    assign hit0     = (valid0_r[block] == 1 && tag0_r[block] == proc_addr[29:4]); 
+    assign hit1     = (valid1_r[block] == 1 && tag1_r[block] == proc_addr[29:4]);
 
+    integer i,j,k;
+
+    always @(*) begin
+        mem_ready_w = mem_ready;
+    end
 //==== combinational circuit ==============================
+    always@(*) begin
+        
+        for (i = 0; i < 4; i=i+1) begin
+            valid0_w[i]  = valid0_r[i];
+            valid1_w[i]  = valid1_r[i];
+            dirty0_w[i]  = dirty0_r[i];
+            dirty1_w[i]  = dirty1_r[i];
+            tag0_w[i]    = tag0_r[i];
+            tag1_w[i]    = tag1_r[i];
+            data0_w[i]   = data0_r[i];
+            data1_w[i]   = data1_r[i];
+            mode_w[i]    = mode_r[i];
+        end
+        state_w = state_r;
 
-assign block_now = proc_addr[3:2];
-assign tag_now = proc_addr[29:4];
-assign word_idx = proc_addr[1:0];
-
-assign hit1 = (valid1[block_now]) && (tag1[block_now] == tag_now);
-assign hit2 = (valid2[block_now]) && (tag2[block_now] == tag_now);
-assign miss1_clean = ~hit1 && ~dirty1[block_now];
-assign miss2_clean = ~hit2 && ~dirty2[block_now];
-assign miss1_dirty = ~hit1 && dirty1[block_now];
-assign miss2_dirty = ~hit2 && dirty2[block_now];
-assign hit = hit1 || hit2;
-assign miss = ~hit;
-
-always @(*) begin // FSM
-    state_nxt = state;
-    set_nxt = NONE;
-    proc_stall_nxt = 0;
-    case (state)
-        IDLE: begin
-            //$display("idle");
-            if (proc_read || proc_write) begin
-                state_nxt = COMPARE;
-                proc_stall_nxt = 1;
-                set_nxt = NONE;
-            end
-            else begin
-                state_nxt = IDLE;
-                proc_stall_nxt = 0;
-                set_nxt = NONE;
-            end
-        end 
-        COMPARE: begin
-            //$display("compare");
-            proc_stall_nxt = 1;
-            if (hit) begin
-                if (proc_write && ~proc_read) begin
-                    state_nxt = WRITE;
+        mem_read    = 1'b0;
+        mem_write   = 1'b0;
+        mem_addr    = 28'b0;
+        mem_wdata   = 128'b0;
+        proc_stall  = 1'b0;
+        proc_rdata  = 32'b0;
+        
+        case (state_r)
+        
+            IDLE: begin
+                if (proc_read && hit0) begin
+                    proc_rdata = data0_r[block][32 * offset + 31-:32];
+                    proc_stall = 0;
+                    mem_read = 0;
+                    mem_write = 0;
                 end
-                else if (proc_read && ~proc_write) begin
-                    state_nxt = READ;
+                else if (proc_read && hit1) begin
+                    proc_rdata = data1_r[block][32 * offset + 31-:32];
+                    proc_stall = 0;
+                    mem_read = 0;
+                    mem_write = 0;
                 end
-                else state_nxt = IDLE;
-
-                if (hit1) begin
-                    set_nxt = ONE;
+                else if (proc_write && hit0) begin
+                    data0_w[block][32 * offset + 31-:32] = proc_wdata;
+                    proc_stall = 0;
+                    dirty0_w[block] = 1;
+                    mem_read = 0;
+                    mem_write = 0;
                 end
-                else if (hit2) begin
-                    set_nxt = TWO;
-                end
-                else set_nxt = NONE;
-            end
-            else begin
-                if (miss1_clean) begin
-                    state_nxt = ALLOCATE;
-                    set_nxt = ONE;
-                end
-                else if (miss1_dirty) begin
-                    state_nxt = WRITEBACK;
-                    set_nxt = ONE;
-                end
-                else if (miss2_clean) begin
-                    state_nxt = ALLOCATE;
-                    set_nxt = TWO;
-                end
-                else if (miss2_dirty) begin
-                    state_nxt = WRITEBACK;
-                    set_nxt = TWO;
+                else if (proc_write && hit1) begin
+                    data1_w[block][32 * offset + 31-:32] = proc_wdata;
+                    proc_stall = 0;
+                    dirty1_w[block] = 1;
+                    mem_read = 0;
+                    mem_write = 0;
                 end
                 else begin
-                    state_nxt = ALLOCATE;
-                    set_nxt = ONE;
+                    proc_stall = 0;
+                    if (proc_read || proc_write) begin
+                        proc_stall = 1;
+                    end
+                    mem_addr = proc_addr[29:2];
+                    if ((dirty0_r[block] && !mode_r[block]) || (dirty1_r[block] && mode_r[block])) begin
+                        state_w = WRITE_BACK;
+                        mem_read = 0;
+                        mem_write = 1;
+                    end
+                    else if (proc_write) begin
+                        state_w = WRITE_READ;
+                        mem_read = 1;
+                        mem_write = 0;
+                    end
+                    else if (proc_read) begin
+                        state_w = READ;
+                        mem_read = 1;
+                        mem_write = 0;
+                    end
+                    else begin
+                        state_w = IDLE;
+                        mem_read = 0;
+                        mem_write = 0;
+                    end
                 end
             end
-        end
-        READ: begin
-            //$display("read");
-            state_nxt = IDLE;
-            proc_stall_nxt = 0;
-            set_nxt = NONE;
-        end
-        WRITE: begin
-            //$display("write");
-            state_nxt = IDLE;
-            proc_stall_nxt = 0;
-            set_nxt = NONE;
-        end
-        ALLOCATE: begin
-            //$display("allocate");
-            proc_stall_nxt = 1;
-            set_nxt = set;
-            if (mem_ready) begin
-                if(proc_read && ~proc_write) begin
-                    state_nxt = READ;
+            READ: begin
+                mem_addr    = proc_addr[29:2];
+                if (mem_ready_r) begin
+                    if (mode_r[block]) begin
+                        data1_w[block] = mem_rdata;
+                        valid1_w[block] = 1;
+                        dirty1_w[block] = 0;
+                        tag1_w[block] = proc_addr[29:4];
+                        mode_w[block] = 0;
+                    end
+                    else begin
+                        data0_w[block] = mem_rdata;
+                        valid0_w[block] = 1;
+                        dirty0_w[block] = 0;
+                        tag0_w[block] = proc_addr[29:4];
+                        mode_w[block] = 1;
+                    end
+                    mem_addr = 27'b0;
+                    proc_stall = 0;
+                    mem_read = 0;
+                    mem_write = 0;
+                    state_w = IDLE;
+                    proc_rdata = mem_rdata[32 * offset + 31-:32];
                 end
-                else if (proc_write && ~proc_read) begin
-                    state_nxt = WRITE;
+                else begin
+                    state_w = state_r;
+                    proc_stall = 1;
+                    mem_read = 1;
+                    mem_write = 0;
                 end
             end
-            else begin
-                state_nxt = ALLOCATE;
+            WRITE_READ: begin
+                if (mem_ready_r) begin
+                    if (mode_r[block]) begin
+                        data1_w[block] = mem_rdata;
+                        data1_w[block][32 * offset + 31-:32] = proc_wdata;
+                        valid1_w[block] = 1;
+                        dirty1_w[block] = 1;
+                        tag1_w[block] = proc_addr[29:4];
+                        mode_w[block] = 0;
+                    end
+                    else begin
+                        data0_w[block] = mem_rdata;
+                        data0_w[block][32 * offset + 31-:32] = proc_wdata;
+                        valid0_w[block] = 1;
+                        dirty0_w[block] = 1;
+                        tag0_w[block] = proc_addr[29:4];
+                        mode_w[block] = 1;
+                    end
+                    state_w = IDLE;
+                    mem_addr = 27'b0;
+                    proc_stall = 0;
+                    mem_read = 0;
+                    mem_write = 0;
+                end
+                else begin
+                    state_w = state_r;
+                    proc_stall = 1;
+                    mem_read = 1;
+                    mem_write = 0;
+                end
             end
-        end
-        WRITEBACK: begin
-            //$display("writeback");
-            proc_stall_nxt = 1;
-            set_nxt = set;
-            if (mem_ready) begin
-                state_nxt = ALLOCATE;
+            WRITE_BACK: begin
+                if (mem_ready_r) begin
+                    state_w = IDLE;
+                    proc_stall = 1;
+                    if (mode_r[block]) begin
+                        dirty1_w[block] = 0;
+                    end
+                    else begin
+                        dirty0_w[block] = 0;
+                    end
+                    mem_read = 1;
+                    mem_write = 0;
+                end
+                else begin
+                    if (mode_r[block]) begin
+                        mem_addr = {tag1_r[block], block};
+                        mem_wdata = data1_r[block];
+                    end
+                    else begin
+                        mem_addr = {tag0_r[block], block};
+                        mem_wdata = data0_r[block];
+                    end
+                    state_w = state_r;
+                    proc_stall = 1;
+                    mem_read = 0;
+                    mem_write = 1;
+                end
             end
-            else begin
-                state_nxt = WRITEBACK;
+            default begin
+                
             end
-        end
-        default: begin
-            state_nxt = IDLE;
-            proc_stall_nxt = 0;
-            set_nxt = NONE;
-        end
-    endcase
-end
-
-always @(*) begin
-    // initial value
-    for(i=0;i<BLOCKNUM;i=i+1)begin
-        cch1_nxt[i] = cch1[i];
-        valid1_nxt[i] = valid1[i];
-        tag1_nxt[i] = tag1[i];
-        dirty1_nxt[i] = dirty1[i];
-        cch2_nxt[i] = cch2[i];
-        valid2_nxt[i] = valid2[i];
-        tag2_nxt[i] = tag2[i];
-        dirty2_nxt[i] = dirty2[i];
+        endcase
     end
-    // proc_stall_nxt = 0;
-    proc_rdata_nxt = 0;
-    mem_read_nxt = 0;
-    mem_write_nxt = 0;
-    mem_addr_nxt = 0;
-    mem_wdata_nxt = 0;
-
-    case (state)
-        READ: begin
-            if (set == ONE) begin
-                case (word_idx)
-                    0: proc_rdata_nxt = cch1[block_now][31:0];
-                    1: proc_rdata_nxt = cch1[block_now][63:32];
-                    2: proc_rdata_nxt = cch1[block_now][95:64];
-                    3: proc_rdata_nxt = cch1[block_now][127:96];
-                    default: proc_rdata_nxt = 0; 
-                endcase
-            end
-            else if (set == TWO) begin
-                case (word_idx)
-                    0: proc_rdata_nxt = cch2[block_now][31:0];
-                    1: proc_rdata_nxt = cch2[block_now][63:32];
-                    2: proc_rdata_nxt = cch2[block_now][95:64];
-                    3: proc_rdata_nxt = cch2[block_now][127:96];
-                    default: proc_rdata_nxt = 0; 
-                endcase
-            end
-        end 
-        WRITE: begin
-            if (set == ONE) begin
-                case (word_idx)
-                    0: cch1_nxt[block_now][31:0] = proc_wdata;
-                    1: cch1_nxt[block_now][63:32] = proc_wdata;
-                    2: cch1_nxt[block_now][95:64] = proc_wdata;
-                    3: cch1_nxt[block_now][127:96] = proc_wdata;
-                    default: cch1_nxt[block_now] = cch1[block_now];
-                endcase
-                tag1_nxt[block_now] = tag_now;
-                dirty1_nxt[block_now] = 1;
-            end
-            else if (set == TWO) begin
-                case (word_idx)
-                    0: cch2_nxt[block_now][31:0] = proc_wdata;
-                    1: cch2_nxt[block_now][63:32] = proc_wdata;
-                    2: cch2_nxt[block_now][95:64] = proc_wdata;
-                    3: cch2_nxt[block_now][127:96] = proc_wdata;
-                    default: cch2_nxt[block_now] = cch2[block_now];
-                endcase
-                tag2_nxt[block_now] = tag_now;
-                dirty2_nxt[block_now] = 1;
-            end
-        end
-        ALLOCATE: begin
-            if (~mem_ready) begin
-                mem_read_nxt = 1;
-                mem_write_nxt = 0;
-                mem_wdata_nxt = 0;
-                mem_addr_nxt = proc_addr[29:2];
-            end
-            else begin
-                if (set == ONE) begin
-                    tag1_nxt[block_now] = tag_now;
-                    valid1_nxt[block_now] = 1;
-                    dirty1_nxt[block_now] = 0;
-                    cch1_nxt[block_now] = mem_rdata;
-                end
-                else if (set == TWO) begin
-                    tag2_nxt[block_now] = tag_now;
-                    valid2_nxt[block_now] = 1;
-                    dirty2_nxt[block_now] = 0;
-                    cch2_nxt[block_now] = mem_rdata;
-                end
-            end
-        end
-        WRITEBACK: begin
-            if (~mem_ready) begin
-                mem_write_nxt = 1;
-                if (set == ONE) begin
-                    mem_wdata_nxt = cch1[block_now];
-                    mem_addr_nxt = {tag1[block_now],block_now};
-                end
-                else if (set == TWO) begin
-                    mem_wdata_nxt = cch2[block_now];
-                    mem_addr_nxt = {tag2[block_now],block_now};
-                end
-            end
-        end
-        default: begin
-            // initial value
-            for(i=0;i<BLOCKNUM;i=i+1) begin
-                cch1_nxt[i] = cch1[i];
-                valid1_nxt[i] = valid1[i];
-                tag1_nxt[i] = tag1[i];
-                dirty1_nxt[i] = dirty1[i];
-                cch2_nxt[i] = cch2[i];
-                valid2_nxt[i] = valid2[i];
-                tag2_nxt[i] = tag2[i];
-                dirty2_nxt[i] = dirty2[i];
-            end
-            // proc_stall_nxt = 0;
-            proc_rdata_nxt = 0;
-            mem_read_nxt = 0;
-            mem_write_nxt = 0;
-            mem_addr_nxt = 0;
-            mem_wdata_nxt = 0;
-        end
-    endcase
-end
-
 //==== sequential circuit =================================
-always@( posedge clk ) begin
-    if( proc_reset ) begin
-        state <= IDLE;
-        set <= NONE;
-        for (i = 0; i<BLOCKNUM; i=i+1) begin
-            cch1[i]      <= 0;
-            tag1[i]      <= 0;
-            valid1[i]    <= 0;
-            dirty1[i]    <= 0;
-            cch2[i]      <= 0;
-            tag2[i]      <= 0;
-            valid2[i]    <= 0;
-            dirty2[i]    <= 0;
+    always@( posedge clk ) begin
+        if( proc_reset ) begin
+            for (j = 0; j < 4; j=j+1) begin
+                valid0_r[j]  <= 1'b0;
+                valid1_r[j]  <= 1'b0;
+                dirty0_r[j]  <= 1'b0;
+                dirty1_r[j]  <= 1'b0;
+                tag0_r[j]    <= 26'b0;
+                tag1_r[j]    <= 26'b0;
+                data0_r[j]   <= 127'b0;
+                data1_r[j]   <= 127'b0; 
+                mode_r[j]    <= 1'b0;      
+            end
+            mem_ready_r     <= 1; 
+            state_r         <= IDLE;
         end
-        proc_stall      <= 0;
-        proc_rdata      <= 0;
-        mem_read        <= 0;
-        mem_write       <= 0;
-        mem_addr        <= 0;
-        mem_wdata       <= 0;
-    end
-    else begin
-        state <= state_nxt;
-        set <= set_nxt;
-        for (i = 0; i<BLOCKNUM; i=i+1) begin
-            cch1[i]      <= cch1_nxt[i];
-            tag1[i]      <= tag1_nxt[i];
-            valid1[i]    <= valid1_nxt[i];
-            dirty1[i]    <= dirty1_nxt[i];
-            cch2[i]      <= cch2_nxt[i];
-            tag2[i]      <= tag2_nxt[i];
-            valid2[i]    <= valid2_nxt[i];
-            dirty2[i]    <= dirty2_nxt[i];
+        else begin
+            for (k = 0; k < 4; k=k+1) begin
+                valid0_r[k]  <= valid0_w[k];
+                valid1_r[k]  <= valid1_w[k];
+                dirty0_r[k]  <= dirty0_w[k];
+                dirty1_r[k]  <= dirty1_w[k];
+                tag0_r[k]    <= tag0_w[k];
+                tag1_r[k]    <= tag1_w[k];
+                data0_r[k]   <= data0_w[k];
+                data1_r[k]   <= data1_w[k];
+                mode_r[k]    <= mode_w[k];
+            end
+            state_r         <= state_w;
+            mem_ready_r     <= mem_ready_w;
         end
-        proc_stall      <= proc_stall_nxt;
-        proc_rdata      <= proc_rdata_nxt;
-        mem_read        <= mem_read_nxt;
-        mem_write       <= mem_write_nxt;
-        mem_addr        <= mem_addr_nxt;
-        mem_wdata       <= mem_wdata_nxt;
     end
-end
 
 endmodule
+// module cache(
+//     clk,
+//     proc_reset,
+//     proc_read,
+//     proc_write,
+//     proc_addr,
+//     proc_rdata,
+//     proc_wdata,
+//     proc_stall,
+//     mem_read,
+//     mem_write,
+//     mem_addr,
+//     mem_rdata,
+//     mem_wdata,
+//     mem_ready
+// );
+    
+// //==== input/output definition ============================
+//     input          clk;
+//     // processor interface
+//     input          proc_reset;
+//     input          proc_read, proc_write;
+//     input   [29:0] proc_addr;
+//     input   [31:0] proc_wdata;
+//     output reg        proc_stall;
+//     output reg [31:0] proc_rdata;
+//     // memory interface
+//     input  [127:0] mem_rdata;
+//     input          mem_ready;
+//     output reg        mem_read, mem_write;
+//     output reg [27:0] mem_addr;
+//     output reg [127:0] mem_wdata;
+
+// //==== parameter definition ===============================
+//     parameter IDLE  = 0;
+//     parameter READ  = 1;
+//     parameter WRITE_READ  = 2;
+//     parameter WRITE_BACK  = 3;
+    
+// //==== wire/reg definition ================================
+//     reg         valid_w   [7:0];
+//     reg         valid_r   [7:0];
+//     reg         dirty_w   [7:0];
+//     reg         dirty_r   [7:0];
+//     reg [24:0]  tag_w     [7:0];
+//     reg [24:0]  tag_r     [7:0];
+//     reg [127:0] data_w    [7:0];
+//     reg [127:0] data_r    [7:0];
+
+//     wire [2:0]   block;
+//     wire [1:0]   offset;
+//     wire         hit;
+
+//     reg [2:0]   state_w, state_r;
+
+//     assign block = proc_addr[4:2];
+//     assign offset = proc_addr[1:0];
+//     assign hit = (valid_r[block] == 1 && tag_r[block] == proc_addr[29:5]);
+
+//     integer i,j,k;
+    
+// //==== combinational circuit ==============================
+//     always@(*) begin
+        
+//         for (i = 0; i < 8; i=i+1) begin
+//             valid_w[i]  = valid_r[i] ;
+//             dirty_w[i]  = dirty_r[i];
+//             tag_w[i]    = tag_r[i];
+//             data_w[i]   = data_r[i];
+//         end
+//         state_w = state_r;
+
+//         mem_read    = 1'b0;
+//         mem_write   = 1'b0;
+//         mem_addr    = 28'b0;
+//         mem_wdata   = 128'b0;
+//         proc_stall  = 1'b0;
+//         proc_rdata  = 32'b0;
+
+//         case (state_r)
+        
+//             IDLE: begin
+//                 if (proc_read && hit) begin
+//                     proc_rdata  = data_r[block][32 * offset + 31-:32];
+//                     proc_stall  = 0;
+//                     mem_read    = 0;
+//                     mem_write   = 0;
+//                 end
+//                 else if (proc_write && hit) begin
+//                     data_w[block][32 * offset + 31-:32] = proc_wdata;
+//                     proc_stall      = 0;
+//                     dirty_w[block]  = 1;
+//                     mem_read        = 0;
+//                     mem_write       = 0;
+//                 end
+//                 else begin
+//                     proc_stall = (proc_read || proc_write);
+//                     mem_addr    = proc_addr[29:2];
+//                     if (dirty_r[block]) begin
+//                         state_w     = WRITE_BACK;
+//                         mem_read    = 0;
+//                         mem_write   = 1;
+//                     end
+//                     else if (proc_write) begin
+//                         state_w     = WRITE_READ;
+//                         mem_read    = 1;
+//                         mem_write   = 0;
+//                     end
+//                     else if (proc_read) begin
+//                         state_w     = READ;
+//                         mem_read    = 1;
+//                         mem_write   = 0;
+//                     end
+//                     else begin
+//                         state_w     = IDLE;
+//                         mem_read    = 0;
+//                         mem_write   = 0;
+//                     end
+//                 end
+//             end
+//             READ: begin
+//                 mem_addr    = proc_addr[29:2];
+//                 if (mem_ready) begin
+//                     data_w[block]   = mem_rdata;
+//                     proc_rdata      = mem_rdata[32 * offset + 31-:32];
+//                     state_w         = IDLE;
+//                     mem_addr        = 27'b0;
+//                     proc_stall      = 0;
+//                     valid_w[block]  = 1;
+//                     dirty_w[block]  = 0;
+//                     tag_w[block]    = proc_addr[29:5];
+//                     mem_read        = 0;
+//                     mem_write       = 0;
+//                 end
+//                 else begin
+//                     state_w     = state_r;
+//                     proc_stall  = 1;
+//                     mem_read    = 1;
+//                     mem_write   = 0;
+//                 end
+//             end
+//             WRITE_READ: begin
+//                 mem_addr    = proc_addr[29:2];
+//                 if (mem_ready) begin
+//                     data_w[block]   = mem_rdata;
+//                     data_w[block][32 * offset + 31-:32] = proc_wdata;
+//                     state_w         = IDLE;
+//                     mem_addr        = 27'b0;
+//                     proc_stall      = 0;
+//                     valid_w[block]  = 1;
+//                     dirty_w[block]  = 1;
+//                     tag_w[block]    = proc_addr[29:5];
+//                     mem_read        = 0;
+//                     mem_write       = 0;
+//                 end
+//                 else begin
+//                     state_w     = state_r;
+//                     proc_stall  = 1;
+//                     mem_read    = 1;
+//                     mem_write   = 0;
+//                 end
+//             end
+//             WRITE_BACK: begin
+//                 if (mem_ready) begin
+//                     state_w         = IDLE;
+//                     proc_stall      = 1;
+//                     dirty_w[block]  = 0;
+//                     mem_read        = 1;
+//                     mem_write       = 0;
+//                 end
+//                 else begin
+//                     mem_addr    = {tag_r[block], block};
+//                     mem_wdata   = data_r[block];
+//                     state_w     = state_r;
+//                     proc_stall  = 1;
+//                     mem_read    = 0;
+//                     mem_write   = 1;
+//                 end
+//             end
+//             default begin
+            
+//             end
+//         endcase
+//     end
+// //==== sequential circuit =================================
+//     always@( posedge clk ) begin
+//         if( proc_reset ) begin
+//             for (j = 0; j < 8; j=j+1) begin
+//                 valid_r[j]  <= 1'b0;
+//                 dirty_r[j]  <= 1'b0;
+//                 tag_r[j]    <= 25'b0;
+//                 data_r[j]   <= 127'b0;
+//             end
+//             state_r         <= IDLE;
+//         end
+//         else begin
+//             for (k = 0; k < 8; k=k+1) begin
+//                 valid_r[k]  <= valid_w[k];
+//                 dirty_r[k]  <= dirty_w[k];
+//                 tag_r[k]    <= tag_w[k];
+//                 data_r[k]   <= data_w[k];
+//             end
+//             state_r         <= state_w;
+//         end
+//     end
+
+// endmodule
